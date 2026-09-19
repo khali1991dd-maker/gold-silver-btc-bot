@@ -1,9 +1,8 @@
 import requests, pytz, json, os
-from datetime import datetime, timedelta
+from datetime import datetime
 import yfinance as yf
 import pandas as pd
 
-# ========= الاعدادات =========
 MUSCAT = pytz.timezone('Asia/Muscat')
 PHONE = "96897134774"
 APIKEY = "4515814"
@@ -20,28 +19,24 @@ def send_whatsapp(text):
 
 def is_gold_closed():
     now = datetime.now(MUSCAT)
-    wd = now.weekday() # 0=Mon... 4=Fri 5=Sat 6=Sun
-    # يغلق الجمعة 10م بتوقيت عمان ويفتح الاثنين 10م
-    if wd == 4 and now.hour >= 22: return True # Fri 10pm
-    if wd == 5: return True # Sat
-    if wd == 6: return True # Sun
-    if wd == 0 and now.hour < 22: return True # Mon before 10pm
+    wd = now.weekday()
+    if wd == 4 and now.hour >= 22: return True
+    if wd == 5: return True
+    if wd == 6: return True
+    if wd == 0 and now.hour < 22: return True
     return False
 
 def get_news_alert():
-    # تنبيه قبل الخبر بساعة - يفحص اخبار USD عالية التأثير
     try:
-        # مصدر مجاني للاخبار
         r = requests.get("https://nfs.faireconomy.media/ff_calendar_thisweek.json", timeout=10)
         data = r.json()
         now = datetime.now(MUSCAT)
         for ev in data:
             if ev.get('impact') == 'High' and 'USD' in ev.get('currency',''):
-                # وقت الخبر
                 t = datetime.fromtimestamp(int(ev['timestamp']))
                 t = pytz.utc.localize(t).astimezone(MUSCAT)
                 diff = (t - now).total_seconds() / 3600
-                if 0.9 < diff < 1.1: # باقي ساعة
+                if 0.9 < diff < 1.1:
                     return f"⚠️ تنبيه خبر قوي بعد ساعة: {ev['title']} {t.strftime('%I:%M %p')}"
     except: pass
     return None
@@ -60,111 +55,110 @@ def analyze_candle(o,h,l,c):
     if c0>o0 and c1<o1 and c0>o1 and o0<c1: return "ابتلاع شرائي قوي"
     if c0<o0 and c1>o1 and c0<o1 and o0>c1: return "ابتلاع بيعي قوي"
     if body < (h0-l0)*0.1: return "دوجي - تردد"
-    if lower > body*2 and upper < body*0.5: return "همر شرائي"
-    if upper > body*2 and lower < body*0.5: return "شهاب بيعي"
+    if lower > body*2 and upper < body*0.5: return "همر شرائي قوي"
+    if upper > body*2 and lower < body*0.5: return "شهاب بيعي قوي"
     if c0>o0: return "شمعة شرائية"
     if c0<o0: return "شمعة بيعية"
     return "عادية"
 
 def analyze(df):
     c=df['Close']; h=df['High']; l=df['Low']; o=df['Open']
-    # موفنجات 10/20/30/50/70/100/200
     ma = {p: float(c.rolling(p).mean().iloc[-1]) for p in [10,20,30,50,70,100,200]}
-    # RSI
     d=c.diff(); g=d.where(d>0,0).rolling(14).mean(); lo=-d.where(d<0,0).rolling(14).mean()
     rsi = float((100-(100/(1+g/lo))).iloc[-1])
-    # MACD
     e12=c.ewm(span=12).mean(); e26=c.ewm(span=26).mean(); macd=e12-e26; sig=macd.ewm(span=9).mean()
     mv=float(macd.iloc[-1]); sv=float(sig.iloc[-1]); hist=mv-sv
-    # ATR = موفنج ترو افرج
     tr=pd.concat([h-l,(h-c.shift()).abs(),(l-c.shift()).abs()],axis=1).max(axis=1)
     atr=float(tr.rolling(14).mean().iloc[-1])
-    # فيبوناتشي
     hh=float(h.tail(50).max()); ll=float(l.tail(50).min()); diff=hh-ll
-    fib_levels = {"23%":hh-diff*0.236,"38%":hh-diff*0.382,"50%":hh-diff*0.5,"61%":hh-diff*0.618,"78%":hh-diff*0.786}
+    fib_levels = {"23%":hh-diff*0.236,"38%":hh-diff*0.382,"50%":hh-diff*0.5,"61%":hh-diff*0.618}
     pr=float(c.iloc[-1]); near=min(fib_levels.items(),key=lambda x:abs(x[1]-pr))
-    # بلوك اوردر
     body = abs(float(c.iloc[-1])-float(o.iloc[-1]))
     ob = "بلوك شرائي قوي" if float(c.iloc[-1])>float(o.iloc[-1]) and body>atr*0.8 else "بلوك بيعي قوي" if float(c.iloc[-1])<float(o.iloc[-1]) and body>atr*0.8 else "بلوك شرائي" if float(c.iloc[-1])>float(o.iloc[-1]) else "بلوك بيعي"
-    # ترند
     if ma[10]>ma[20]>ma[30]>ma[50]: trend="صاعد قوي 📈📈"
     elif ma[10]>ma[20]>ma[30]: trend="صاعد 📈"
     elif ma[10]<ma[20]<ma[30]<ma[50]: trend="هابط قوي 📉📉"
     elif ma[10]<ma[20]<ma[30]: trend="هابط 📉"
     else: trend="عرضي"
-    # شمعة
     candle = analyze_candle(o,h,l,c)
-    # قرار نهائي
-    buy_score = (ma[10]>ma[20]) + (ma[20]>ma[30]) + (mv>sv) + (hist>0) + (rsi>50) + (1 if "شرائي" in candle else 0)
-    sell_score = (ma[10]<ma[20]) + (ma[20]<ma[30]) + (mv<sv) + (hist<0) + (rsi<50) + (1 if "بيعي" in candle else 0)
-    final = "BUY" if buy_score>=4 else "SELL" if sell_score>=4 else "WAIT"
-    return {"p":pr,"ma":ma,"rsi":rsi,"macd":mv,"sig":sv,"atr":atr,"fib":near,"fib_all":fib_levels,"ob":ob,"candle":candle,"trend":trend,"final":final,"buy":buy_score,"sell":sell_score}
+
+    # القرار مع فلتر RSI + الشمعة
+    buy_score = (ma[10]>ma[20]) + (ma[20]>ma[30]) + (mv>sv) + (hist>0) + (rsi>50)
+    sell_score = (ma[10]<ma[20]) + (ma[20]<ma[30]) + (mv<sv) + (hist<0) + (rsi<50)
+
+    is_bull_candle = "شرائي" in candle
+    is_bear_candle = "بيعي" in candle
+
+    final = "WAIT"
+    reason = ""
+    if buy_score >=3:
+        if rsi > 75:
+            final="WAIT"; reason=f"RSI عالي {rsi:.0f} فوق 75 - ممنوع الشراء"
+        elif not is_bull_candle:
+            final="WAIT"; reason=f"الشمعة {candle} لا توافق الشراء"
+        else:
+            final="BUY"
+    elif sell_score >=3:
+        if rsi < 25:
+            final="WAIT"; reason=f"RSI منخفض {rsi:.0f} تحت 25 - ممنوع البيع"
+        elif not is_bear_candle:
+            final="WAIT"; reason=f"الشمعة {candle} لا توافق البيع"
+        else:
+            final="SELL"
+
+    return {"p":pr,"ma":ma,"rsi":rsi,"macd":mv,"sig":sv,"atr":atr,"fib":near,"ob":ob,"candle":candle,"trend":trend,"final":final,"reason":reason,"buy":buy_score,"sell":sell_score}
 
 def load_state():
     if os.path.exists(STATE_FILE):
         try: return json.loads(open(STATE_FILE).read())
         except: return {}
     return {}
-
 def save_state(s): open(STATE_FILE,'w').write(json.dumps(s))
 
-# ========= التشغيل =========
 NOW = datetime.now(MUSCAT)
 TIME_FULL = NOW.strftime("%A %Y-%m-%d %I:%M:%S %p توقيت عمان")
 GOLD_CLOSED = is_gold_closed()
 
-# 1- رسالة تفعيل فورية
-send_whatsapp(f"✅ تم تفعيل البوت {TIME_FULL}\nالذهب: {'مغلق حتى الاثنين 10م' if GOLD_CLOSED else 'مفتوح'} | الفضة: {'مغلقة' if GOLD_CLOSED else 'مفتوحة'} | بيتكوين: مفتوح 24س")
+send_whatsapp(f"✅ تم تفعيل البوت {TIME_FULL}\nالذهب: {'مغلق حتى الاثنين 10م' if GOLD_CLOSED else 'مفتوح'} | الفضة: {'مغلقة' if GOLD_CLOSED else 'مفتوحة'} | بيتكوين: مفتوح\nفلتر جديد: لا بيع تحت RSI 25 ولا شراء فوق 75 + الشمعة توافق")
 
-# 2- تنبيه خبر قبل ساعة
 news = get_news_alert()
 if news: send_whatsapp(news)
 
-# 3- التحليل
 state = load_state()
 report = f"📊 تقرير {TIME_FULL} - فريم 5د\n"
-report += f"الذهب: {'مغلق 🔒' if GOLD_CLOSED else 'مفتوح'}\n"
-report += f"*{'_'*32}*\n"
-
 signals = []
-for sym,name in [("GC=F","ذهب"),("SI=F","فضة"),("BTC-USD","بيتكوين")]:
-    if name in ["ذهب","فضة"] and GOLD_CLOSED and sym!="BTC-USD":
-        # لا تحلل الذهب والفضة اذا مغلق بس نكتب سعره الاخير
-        df = get_df(sym)
-        if df is not None:
-            a = analyze(df)
-            report += f"{name}:{a['p']:.2f} مغلق {a['trend']} RSI:{a['rsi']:.0f} =>{a['final']}\n"
-        continue
 
-    df = get_df(sym)
+for sym,name in [("GC=F","ذهب"),("SI=F","فضة"),("BTC-USD","بيتكوين")]:
+    if name in ["ذهب","فضة"] and GOLD_CLOSED:
+        df=get_df(sym)
+        if df is not None:
+            a=analyze(df)
+            report+=f"{name}:{a['p']:.2f} مغلق {a['trend']} RSI:{a['rsi']:.0f} =>{a['final']}\n"
+        continue
+    df=get_df(sym)
     if df is None: continue
-    a = analyze(df)
-    report += f"{name}:{a['p']:.2f} {a['trend']} RSI:{a['rsi']:.0f} MACD:{a['macd']:.2f} =>{a['final']}\n"
-    if a['final']!= "WAIT":
+    a=analyze(df)
+    report+=f"{name}:{a['p']:.2f} {a['trend']} RSI:{a['rsi']:.0f} =>{a['final']} {a['reason']}\n"
+    if a['final']!="WAIT":
         signals.append((name,a))
-        # فحص تغيير الترند
-        key = f"{name}_final"
+        key=f"{name}_final"
         if state.get(key) and state.get(key)!=a['final']:
             send_whatsapp(f"🔄 صار تغيير {name} {TIME_FULL}\nمن {state.get(key)} الى {a['final']}\nالسعر:{a['p']:.2f} ترند:{a['trend']}")
 
-# حفظ الحالة
 for name,a in signals: state[f"{name}_final"]=a['final']
 save_state(state)
 
-# 4- تقرير كل ساعة (اذا الدقيقة 0-4)
 if NOW.minute < 5:
     send_whatsapp(report)
 
-# 5- صفقات كل 5 دقايق
 for name,a in signals:
     is_buy = a['final']=="BUY"
     sl = a['p']-a['atr']*2.2 if is_buy else a['p']+a['atr']*2.2
     tp1 = a['p']+a['atr']*1.1 if is_buy else a['p']-a['atr']*1.1
     tp2 = a['p']+a['atr']*2.2 if is_buy else a['p']-a['atr']*2.2
     tp3 = a['p']+a['atr']*3.5 if is_buy else a['p']-a['atr']*3.5
-
     msg = f"""🚨 ادخل الصفقة الان 🚨
-*{ '_' *32}*
+*________________________*
 ⏰ {TIME_FULL}
 💰 {name} - {a['final']}
 💵 السعر الحالي:{a['p']:.2f}
@@ -174,15 +168,15 @@ for name,a in signals:
 هدف1:{tp1:.2f}
 هدف2:{tp2:.2f}
 هدف3:{tp3:.2f}
-⛔ وقف الخسارة:{sl:.2f}
+⛔ وقف:{sl:.2f}
 📊 RSI:{a['rsi']:.0f} | MACD:{a['macd']:.2f}
 📐 فيبو:{a['fib'][0]} عند {a['fib'][1]:.2f}
-🧱 بلوك اوردر:{a['ob']}
-🕯️ شمعة:{a['candle']}
+🧱 {a['ob']}
+🕯️ {a['candle']}
 📏 ATR:{a['atr']:.2f}
 MA10:{a['ma'][10]:.2f} MA20:{a['ma'][20]:.2f} MA200:{a['ma'][200]:.2f}
-*{ '_' *32}*"""
+*________________________*"""
     send_whatsapp(msg)
 
-if not signals and NOW.minute < 5:
-    send_whatsapp(f"⏳ لا توجد صفقات الان {TIME_FULL} - انتظر 5 دقايق")
+if not signals and NOW.minute <5:
+    send_whatsapp(f"⏳ لا توجد صفقات موثوقة الان {TIME_FULL}\nالسبب: فلتر RSI 25/75 + توافق الشمعة")
