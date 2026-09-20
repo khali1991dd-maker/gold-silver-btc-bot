@@ -9,7 +9,11 @@ def send(m):
     try:
         url=f"https://api.telegram.org/bot{tok}/sendMessage?chat_id={chat}&text={quote(m[:3900])}&parse_mode=Markdown"
         requests.get(url, timeout=20)
-    except: pass
+    except Exception as e:
+        print(f"SEND FAIL {e}")
+
+# ✅ رسالة تأكيد ان البوت تفعل - توصلك كل مرة يشتغل
+send(f"🔔 البوت تفعل\n⏰ {NOW.strftime('%Y-%m-%d %H:%M:%S')} مسقط")
 
 def gold_closed():
     wd=NOW.weekday(); h=NOW.hour
@@ -22,16 +26,21 @@ def gold_closed():
 try:
     import yfinance as yf, pandas as pd
     def get_df(sym):
-        df=yf.download(sym, period="10d", interval="5m", progress=False, auto_adjust=True)
-        if hasattr(df.columns,'get_level_values'):
-            try: df.columns=df.columns.get_level_values(0)
-            except: pass
-        return df.dropna()
+        try:
+            df=yf.download(sym, period="10d", interval="5m", progress=False, auto_adjust=True)
+            if hasattr(df.columns,'get_level_values'):
+                try: df.columns=df.columns.get_level_values(0)
+                except: pass
+            return df.dropna()
+        except Exception as e:
+            print(f"YF FAIL {sym} {e}")
+            return None
 
-    if NOW.hour==15 and NOW.minute<30:
-        send(f"⚠️ *تنبيه خبر مهم*\nالساعة 4:30م بتوقيت مسقط خبر قوي\n⏰ {NOW.strftime('%Y-%m-%d %H:%M')}")
+    # تنبيه خبر 4:30
+    if NOW.hour==15 and NOW.minute<12:
+        send(f"⚠️ تنبيه خبر مهم\nالساعة 4:30م بتوقيت مسقط خبر قوي على الذهب\n⏰ {NOW.strftime('%H:%M')}")
 
-    is_hourly = NOW.minute < 5
+    is_hourly = NOW.minute < 12 # لو GitHub تأخر 10 دقايق بيرسل بعد
     last_file="/tmp/last_trends.json"
     try:
         with open(last_file,"r") as f: last_trends=json.load(f)
@@ -41,10 +50,15 @@ try:
     for sym,name in [("GC=F","الذهب"),("SI=F","الفضة"),("BTC-USD","البيتكوين")]:
         if name!="البيتكوين" and gold_closed():
             if is_hourly:
-                send(f"⏸️ {name} مغلق - يفتح اثنين 1ص\n⏰ {NOW.strftime('%Y-%m-%d %H:%M')} مسقط")
+                send(f"⏸️ {name} مغلق - يفتح الاثنين 1ص مسقط\n⏰ {NOW.strftime('%H:%M')}")
             continue
+
         df=get_df(sym)
-        if df is None or len(df)<200: continue
+        if df is None or len(df)<200:
+            if is_hourly:
+                send(f"⚠️ {name} ما فيه بيانات حاليا yfinance محظور مؤقتا\n⏰ {NOW.strftime('%H:%M')}")
+            continue
+
         c=df['Close']; ma={}
         for p in [10,20,30,50,70,100,200]: ma[p]=float(c.rolling(p).mean().iloc[-1])
         ma_prev={}
@@ -73,11 +87,11 @@ try:
 
         prev_up = ma_prev[10]>ma_prev[20]>ma_prev[30]>ma_prev[50]>ma_prev[70]>ma_prev[100] and price_prev>ma_prev[10]
         prev_down = ma_prev[10]<ma_prev[20]<ma_prev[30]<ma_prev[50]<ma_prev[70]<ma_prev[100] and price_prev<ma_prev[10]
-        prev_type="صاعد" if prev_up else "هابط" if prev_down else "عرضي"
         curr_type="صاعد" if strong_up else "هابط" if strong_down else "عرضي"
         new_trends[sym]=curr_type
+
         if sym in last_trends and last_trends[sym]!=curr_type and curr_type!="عرضي":
-            send(f"🔄 *تغيير ترند* {name}\nمن {last_trends[sym]} الى {curr_type}\n💰 {price:.2f}\n⏰ {NOW.strftime('%Y-%m-%d %H:%M')} مسقط")
+            send(f"🔄 تغيير ترند {name}\nمن {last_trends[sym]} الى {curr_type}\n💰 {price:.2f}\n⏰ {NOW.strftime('%H:%M')} مسقط")
 
         buy_ok = strong_up and bull and not is_doji and macd>sig and rsi<=75
         sell_ok = strong_down and bear and not is_doji and macd<sig and rsi>=25
@@ -86,13 +100,13 @@ try:
             action="🟢 شراء" if buy_ok else "🔴 بيع" if sell_ok else "🟡 انتظار"
             msg=f"""{'🚀 ادخل الصفقة الان' if buy_ok or sell_ok else '📊 تقرير ساعي'} {name}
 ⏰ {NOW.strftime('%Y-%m-%d %H:%M')} مسقط
-💰 السعر الحالي: {price:.2f}
-📈 نوع الترند: {trend_type}
+💰 السعر: {price:.2f}
+📈 {trend_type}
 {action}
 MA10={ma[10]:.1f} MA20={ma[20]:.1f} MA30={ma[30]:.1f}
 MA50={ma[50]:.1f} MA70={ma[70]:.1f} MA100={ma[100]:.1f} MA200={ma[200]:.1f}
 MACD={macd:.2f} SIG={sig:.2f} RSI={rsi:.1f} ATR={atr:.2f}
-فيبو 61%={fib61:.1f} 78%={fib78:.1f}
+فيبو 61={fib61:.1f} 78={fib78:.1f}
 شمعة: {candle} {block}
 """
             if buy_ok:
@@ -104,5 +118,8 @@ MACD={macd:.2f} SIG={sig:.2f} RSI={rsi:.1f} ATR={atr:.2f}
             send(msg)
 
     with open(last_file,"w") as f: json.dump(new_trends,f)
+
 except Exception as e:
+    import traceback
+    print(traceback.format_exc())
     send(f"❌ خطأ: {e}\n⏰ {NOW.strftime('%H:%M')}")
