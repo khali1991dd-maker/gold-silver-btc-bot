@@ -16,4 +16,3 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT: ${{ secrets.TG_CHAT }}
-          WA_KEY: ${{ secrets.WA_KEY }}
