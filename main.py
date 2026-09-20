@@ -33,12 +33,11 @@ try:
             print(f"YF FAIL {sym} {e}")
             return None
 
-    # تصحيح: رسالة التفعيل ترسل فقط مرة وحدة كل ساعة او اول تشغيل
     is_hourly = NOW.minute < 12
     last_file="/tmp/last_trends.json"
-    first_run = not os.path.exists(last_file)
 
-    if is_hourly or first_run:
+    # رسالة التفعيل فقط كل ساعة - ما تتكرر كل 5 دقايق
+    if is_hourly:
         send(f"🔔 تم تفعيل البوت بنجاح\n⏰ {NOW.strftime('%Y-%m-%d %H:%M:%S')} مسقط\n📊 الذهب - الفضة - البيتكوين - فريم 5د")
 
     if NOW.hour==15 and NOW.minute<12:
