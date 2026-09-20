@@ -1,20 +1,15 @@
-name: Gold Silver BTC Bot Final
-
+name: Oman Gold Bot
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
-
 jobs:
-  bot:
+  run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-      - name: Install
-        run: pip install yfinance pandas requests pytz
-      - name: Run
-        run: python main.py
+          python-version: '3.11'
+      - run: pip install yfinance pandas pytz requests
+      - run: python main.py
