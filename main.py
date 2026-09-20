@@ -1,14 +1,17 @@
-import os, requests
-from urllib.parse import quote
-import datetime, pytz
-
-MUSCAT = pytz.timezone("Asia/Muscat")
-NOW = datetime.datetime.now(MUSCAT)
-
-tok=os.getenv("TG_TOKEN")
-chat=os.getenv("TG_CHAT")
-
-def send(m):
-    requests.get(f"https://api.telegram.org/bot{tok}/sendMessage?chat_id={chat}&text={quote(m)}&parse_mode=Markdown", timeout=15)
-
-send(f"✅ التجربة شغالة\n⏰ {NOW.strftime('%Y-%m-%d %H:%M')} مسقط\nاذا وصلت هذه يعني السيكرتس صح - المشكلة في yfinance فقط")
+name: bot
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install --upgrade pip && pip install yfinance pandas pytz requests numpy
+      - run: python main.py
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
