@@ -12,8 +12,6 @@ def send(m):
     except Exception as e:
         print(f"SEND FAIL {e}")
 
-send(f"🔔 تم تفعيل البوت بنجاح\n⏰ {NOW.strftime('%Y-%m-%d %H:%M:%S')} مسقط\n📊 الذهب - الفضة - البيتكوين - فريم 5د")
-
 def gold_closed():
     wd=NOW.weekday(); h=NOW.hour
     if wd==4 and h>=23: return True
@@ -35,11 +33,17 @@ try:
             print(f"YF FAIL {sym} {e}")
             return None
 
+    # تصحيح: رسالة التفعيل ترسل فقط مرة وحدة كل ساعة او اول تشغيل
+    is_hourly = NOW.minute < 12
+    last_file="/tmp/last_trends.json"
+    first_run = not os.path.exists(last_file)
+
+    if is_hourly or first_run:
+        send(f"🔔 تم تفعيل البوت بنجاح\n⏰ {NOW.strftime('%Y-%m-%d %H:%M:%S')} مسقط\n📊 الذهب - الفضة - البيتكوين - فريم 5د")
+
     if NOW.hour==15 and NOW.minute<12:
         send(f"⚠️ تنبيه خبر مهم\n⏰ الساعة 4:30م مسقط خبر قوي\n📅 {NOW.strftime('%H:%M')}")
 
-    is_hourly = NOW.minute < 12
-    last_file="/tmp/last_trends.json"
     try:
         with open(last_file,"r") as f: last_trends=json.load(f)
     except: last_trends={}
