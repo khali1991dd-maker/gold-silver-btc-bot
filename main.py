@@ -1,4 +1,4 @@
-import os, requests, datetime, yfinance as yf, pandas as pd, json
+import os, requests, datetime, yfinance as yf, pandas as pd, json, time
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
@@ -105,7 +105,6 @@ def get_analysis(symbol, spot_price=None):
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
         
-        # متوازن + RSI 30/70
         if (near_fib or candle_pattern):
             if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=70 and (is_bull_candle or near_fib):
                 signal="شراء"
@@ -155,7 +154,7 @@ for sym,name in symbols.items():
         else:
             sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
 
-        msg=(f"🚀 ادخل الان - {name}\n\n"
+        msg=(f"🚀🚀🚀 ادخل الان - {name} 🚀🚀🚀\n\n"
              f"⏰ الوقت والتاريخ: {time_str}\n"
              f"💰 السعر: {e:.2f} (Exness)\n"
              f"📈 نوع الترند: {an['trend']}\n"
@@ -167,7 +166,11 @@ for sym,name in symbols.items():
              f"الهدف 2: {tp2:.2f}\n"
              f"الهدف 3: {tp3:.2f}\n"
              f"وقف الخسارة: {sl:.2f}")
-        send(msg)
+        
+        # يرن 3 مرات
+        for i in range(3):
+            send(msg)
+            time.sleep(1.5)
 
 save_state(state)
 
@@ -176,7 +179,7 @@ status_msg = (
     f"🥇 سعر الذهب: {gold_p}\n"
     f"🥈 سعر الفضة: {silver_p}\n"
     f"₿ سعر البيتكوين: {btc_p}\n\n"
-    f"🤖 البوت شغال ✅ - RSI 30/70"
+    f"🤖 البوت شغال ✅ - RSI 30/70 - يرن 3x"
 )
 send(status_msg)
 print("Done")
