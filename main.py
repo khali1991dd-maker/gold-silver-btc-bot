@@ -68,7 +68,7 @@ def get_analysis(symbol):
         fib618=hh-diff*0.618; fib50=hh-diff*0.5; fib786=hh-diff*0.786
         last=df.iloc[-1]; prev=df.iloc[-2]
         price=float(last["Close"]); atr=float(last["ATR"])
-        trend="عرضي ❌ لا دخول"
+        trend="عرضي"
         if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]>last["MA70"]>last["MA100"]:
             trend="صاعد قوي"
         elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]<last["MA70"]<last["MA100"]:
@@ -108,19 +108,16 @@ if muscat.hour==15 and 30 <= muscat.minute < 35:
     send(f"⚠️ تنبيه خبر مهم الساعة 4:30م مسقط\n{time_str}")
 
 state=load_state()
-full_report=[]; closed_report=[]; trade_sent=False
+prices_text=[]
 
 for sym,name in symbols.items():
     if not is_market_open(sym,muscat):
-        closed_report.append(f"{name}: ⏸️ مغلق")
+        prices_text.append(f"{name}: ⏸️ مغلق")
         continue
     an=get_analysis(sym)
     if not an:
-        full_report.append(f"{name}: جلب بيانات...")
+        prices_text.append(f"{name}: جلب بيانات...")
         continue
-    last_trend=state.get(sym,"")
-    if last_trend and last_trend!= an["trend"]:
-        send(f"🔄 تغيير ترند {name} من {last_trend} الى {an['trend']}\n{time_str}\nالسعر: {an['price']:.2f}")
     state[sym]=an["trend"]
     if an["signal"]:
         e=an["price"]; a=an["atr"]
@@ -128,16 +125,25 @@ for sym,name in symbols.items():
             sl=e-a*2; tp1=e+a*1.5; tp2=e+a*3; tp3=e+a*4.5
         else:
             sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
-        msg=f"🚀 ادخل الصفقة الان - {name}\n\nالتاريخ: {time_str}\nالسعر: {e:.2f}\nالترند: {an['trend']}\nالاشارة: {an['signal']}\nRSI: {an['rsi']:.1f}\nالشمعة: {an['candle']}\nبلوك: {'يوجد ✅' if an['block'] else 'لا'}\nفيبو 61.8%: {an['fib618']:.2f}\nفيبو 50%: {an['fib50']:.2f}\nفيبو 78.6%: {an['fib786']:.2f}\n\nالدخول: {e:.2f}\nهدف1: {tp1:.2f}\nهدف2: {tp2:.2f}\nهدف3: {tp3:.2f}\nوقف: {sl:.2f}"
+        # رسالة الصفقة النهائية المطلوبة
+        msg=(f"🚀 دخول الان - {name}\n\n"
+             f"الوقت والتاريخ: {time_str}\n"
+             f"السعر: {e:.2f}\n"
+             f"نوع الترند: {an['trend']}\n"
+             f"الاشارة: {an['signal']}\n\n"
+             f"سعر الدخول: {e:.2f}\n"
+             f"الهدف الاول: {tp1:.2f}\n"
+             f"الهدف الثاني: {tp2:.2f}\n"
+             f"الهدف الثالث: {tp3:.2f}\n"
+             f"وقف الخسارة: {sl:.2f}")
         send(msg)
-        trade_sent=True
-    full_report.append(f"{name}: {an['price']:.2f} | {an['trend']} | RSI {an['rsi']:.0f} | {an['candle']} | {an['signal'] if an['signal'] else 'انتظار'}")
+    prices_text.append(f"{name}: {an['price']:.2f}")
 
 save_state(state)
+
+# الرسالة الدورية كل 5 دقايق
 msg=f"🤖 GoldSniper - {time_str}\n\n"
-if closed_report: msg+="\n".join(closed_report)+"\n\n"
-if full_report: msg+="\n".join(full_report)+"\n\n"
-if not trade_sent: msg+="✅ البوت شغال كل 5د - لا صفقات قوية (عرضي)\n"
-msg+=f"فيبو 61.8/50/78.6 | بلوك اوردر | MA مرتب | فريم 5د مسقط"
+msg+="\n".join(prices_text)+"\n\n"
+msg+="✅ البوت شغال كل 5د"
 send(msg)
 print("Done")
