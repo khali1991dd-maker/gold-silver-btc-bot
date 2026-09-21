@@ -1,4 +1,4 @@
-import os, requests, datetime, yfinance as yf, pandas as pd, json
+import os, requests, datetime, yfinance as yf, pandas as pd, json, time
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
@@ -66,7 +66,6 @@ def get_analysis(spot_price=None):
         close=df["Close"]; high=df["High"]; low=df["Low"]; open_=df["Open"]
         df["MA10"]=close.rolling(10).mean(); df["MA20"]=close.rolling(20).mean()
         df["MA30"]=close.rolling(30).mean(); df["MA50"]=close.rolling(50).mean()
-        df["MA70"]=close.rolling(70).mean(); df["MA100"]=close.rolling(100).mean()
         ema12=close.ewm(span=12).mean(); ema26=close.ewm(span=26).mean()
         df["MACD"]=ema12-ema26; df["SIG"]=df["MACD"].ewm(span=9).mean()
         df["RSI"]=rsi(close)
@@ -89,9 +88,9 @@ def get_analysis(spot_price=None):
                 break
 
         trend="عرضي"
-        if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]>last["MA70"]>last["MA100"]:
+        if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]:
             trend="صاعد قوي"
-        elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]<last["MA70"]<last["MA100"]:
+        elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]:
             trend="هابط قوي"
 
         candle = detect_candle(float(last["Open"]), float(last["High"]), float(last["Low"]), float(last["Close"]))
@@ -141,21 +140,24 @@ else:
             else:
                 sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
 
-            msg=(f"🚀 ادخل الان - الذهب\n\n"
+            msg=(f"🚀🚀🚀 ادخل الان - الذهب 🚀🚀🚀\n\n"
                  f"⏰ {time_str}\n"
-                 f"💰 {e:.2f} (Exness)\n"
-                 f"📈 {an['trend']}\n"
+                 f"💰 {e:.2f}\n"
+                 f"📈 {an['trend']} (4MA)\n"
                  f"🕯️ {an['candle']}\n"
-                 f"📐 فيبو: {an['near_fib']}\n\n"
+                 f"📐 {an['near_fib']}\n\n"
                  f"اشارة: {an['signal']}\n"
                  f"دخول: {e:.2f}\n"
                  f"هدف1: {tp1:.2f}\n"
                  f"هدف2: {tp2:.2f}\n"
                  f"هدف3: {tp3:.2f}\n"
                  f"وقف: {sl:.2f}")
-            send(msg)
+            
+            for i in range(3):
+                send(msg)
+                time.sleep(1.5)
         else:
-            send(f"⏰ {time_str}\n🥇 الذهب: {an['price']:.2f}\n📈 {an['trend']}\n🤖 لا يوجد اشارة - معتدل 30/70")
+            send(f"⏰ {time_str}\n🥇 {an['price']:.2f}\n📈 {an['trend']}\n🤖 لا يوجد اشارة - 4 متوسطات")
 
 save_state(state)
-print("Done Gold Only")
+print("Done 4MA 3x")
