@@ -35,7 +35,6 @@ def rsi(series, p=14):
 
 def get_analysis(symbol):
     try:
-        # جلب مباشر من السوق الفوري
         df = yf.download(symbol, period="10d", interval="5m", progress=False, auto_adjust=True)
         if len(df) < 200: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
@@ -79,11 +78,11 @@ def save_state(state):
 muscat=get_muscat_time()
 time_str=muscat.strftime("%d-%m %Y %I:%M %p")
 
-# === المصدر المباشر من السوق ===
+# سعر مباشر من بورصة نيويورك CME - نفس سعر السوق
 symbols={
-    "XAUUSD=X":"الذهب", # ذهب فوري مباشر
-    "XAGUSD=X":"الفضة", # فضة فورية مباشرة
-    "BTC-USD":"البيتكوين" # بيتكوين مباشر
+    "GC=F":"الذهب",
+    "SI=F":"الفضة",
+    "BTC-USD":"البيتكوين"
 }
 
 state=load_state()
@@ -118,6 +117,8 @@ for sym,name in symbols.items():
     prices_text.append(f"{name}: {an['price']:.2f}")
 
 save_state(state)
+
+# رسالة كل 5 دقايق
 msg=f"🤖 GoldSniper - {time_str}\n\n" + "\n".join(prices_text) + "\n\n✅ البوت شغال كل 5د - سعر مباشر"
 send(msg)
 print("Done")
