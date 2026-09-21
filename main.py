@@ -105,11 +105,11 @@ def get_analysis(symbol, spot_price=None):
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
         
-        # رقم 1: فيبو أو شمعة
+        # متوازن + RSI 30/70
         if (near_fib or candle_pattern):
-            if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=75 and (is_bull_candle or near_fib):
+            if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=70 and (is_bull_candle or near_fib):
                 signal="شراء"
-            elif trend=="هابط قوي" and float(last["Close"])<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=25 and (is_bear_candle or near_fib):
+            elif trend=="هابط قوي" and float(last["Close"])<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=30 and (is_bear_candle or near_fib):
                 signal="بيع"
 
         return {"price":price,"trend":trend,"signal":signal,"atr":atr,"fib":fib_levels,"near_fib":near_fib,"candle":candle_pattern,"high":swing_high,"low":swing_low}
@@ -131,23 +131,18 @@ muscat=get_muscat_time()
 time_str=muscat.strftime("%d-%m-%Y %I:%M %p")
 symbols={"GC=F":"الذهب","SI=F":"الفضة","BTC-USD":"البيتكوين"}
 state=load_state()
-prices_text=[]
 exness_gold = get_exness_spot()
-
 gold_p = silver_p = btc_p = "جلب..."
 
 for sym,name in symbols.items():
     if not is_market_open(sym,muscat):
-        prices_text.append(f"{name}: مغلق")
         if name=="الذهب": gold_p="مغلق"
         elif name=="الفضة": silver_p="مغلق"
         else: btc_p="مغلق"
         continue
     spot = exness_gold if name=="الذهب" else None
     an=get_analysis(sym, spot_price=spot)
-    if not an:
-        prices_text.append(f"{name}: جلب...")
-        continue
+    if not an: continue
     
     if name=="الذهب": gold_p=f"{an['price']:.2f}"
     elif name=="الفضة": silver_p=f"{an['price']:.2f}"
@@ -173,8 +168,6 @@ for sym,name in symbols.items():
              f"الهدف 3: {tp3:.2f}\n"
              f"وقف الخسارة: {sl:.2f}")
         send(msg)
-    
-    prices_text.append(f"{name}: {an['price']:.2f}")
 
 save_state(state)
 
@@ -183,7 +176,7 @@ status_msg = (
     f"🥇 سعر الذهب: {gold_p}\n"
     f"🥈 سعر الفضة: {silver_p}\n"
     f"₿ سعر البيتكوين: {btc_p}\n\n"
-    f"🤖 البوت شغال ✅ - متوازن"
+    f"🤖 البوت شغال ✅ - RSI 30/70"
 )
 send(status_msg)
 print("Done")
