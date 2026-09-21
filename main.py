@@ -1,4 +1,4 @@
-import os, requests, datetime, yfinance as yf, pandas as pd, json, time
+import os, requests, datetime, yfinance as yf, pandas as pd, json
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
@@ -14,10 +14,8 @@ def send(text):
 def get_muscat_time():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=4)
 
-def is_market_open(symbol, muscat):
-    if "BTC" in symbol: return True
+def is_market_open(muscat):
     wd=muscat.weekday(); h=muscat.hour
-    # تصليح: يقفل جمعة 11 بالليل والسبت كامل فقط
     if wd==4 and h>=23: return False
     if wd==5: return False
     if wd==6 and h<1: return False
@@ -44,20 +42,31 @@ def detect_candle(open_, high, low, close):
     lower = min(close, open_) - low
     is_bull = close > open_
     if body==0: return None
-    if lower > body*1.5 and is_bull:
+    if lower > body*2 and upper < body*0.5 and is_bull:
         return "مطرقة شرائية 🔨"
-    if upper > body*1.5 and not is_bull:
+    if upper > body*2 and lower < body*0.5 and not is_bull:
         return "شهاب بيعي ☄️"
     return None
 
-def get_analysis(symbol, spot_price=None):
+def detect_engulfing(df):
+    if len(df) < 2: return None
+    o1, c1 = float(df.iloc[-2]["Open"]), float(df.iloc[-2]["Close"])
+    o2, c2 = float(df.iloc[-1]["Open"]), float(df.iloc[-1]["Close"])
+    if c1 < o1 and c2 > o2 and c2 > o1 and o2 < c1:
+        return "ابتلاع شرائي ✅"
+    if c1 > o1 and c2 < o2 and c2 < o1 and o2 > c1:
+        return "ابتلاع بيعي ❌"
+    return None
+
+def get_analysis(spot_price=None):
     try:
-        df=yf.download(symbol, period="10d", interval="5m", progress=False, auto_adjust=True)
-        if len(df)<100: return None
+        df=yf.download("GC=F", period="10d", interval="5m", progress=False, auto_adjust=True)
+        if len(df)<200: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
         close=df["Close"]; high=df["High"]; low=df["Low"]; open_=df["Open"]
         df["MA10"]=close.rolling(10).mean(); df["MA20"]=close.rolling(20).mean()
-        df["MA30"]=close.rolling(30).mean()
+        df["MA30"]=close.rolling(30).mean(); df["MA50"]=close.rolling(50).mean()
+        df["MA70"]=close.rolling(70).mean(); df["MA100"]=close.rolling(100).mean()
         ema12=close.ewm(span=12).mean(); ema26=close.ewm(span=26).mean()
         df["MACD"]=ema12-ema26; df["SIG"]=df["MACD"].ewm(span=9).mean()
         df["RSI"]=rsi(close)
@@ -67,24 +76,42 @@ def get_analysis(symbol, spot_price=None):
         price = spot_price if spot_price else float(last["Close"])
         atr=float(last["ATR"])
 
+        last50 = df.tail(50)
+        swing_high = float(last50["High"].max())
+        swing_low = float(last50["Low"].min())
+        diff = swing_high - swing_low
+        fib_levels = {"0.382": swing_high - diff*0.382, "0.5": swing_high - diff*0.5, "0.618": swing_high - diff*0.618}
+
+        near_fib = None
+        for k,v in fib_levels.items():
+            if abs(price - v) < atr*0.8:
+                near_fib = f"{k} ({v:.2f})"
+                break
+
         trend="عرضي"
-        if last["MA10"]>last["MA20"]>last["MA30"]:
-            trend="صاعد"
-        elif last["MA10"]<last["MA20"]<last["MA30"]:
-            trend="هابط"
+        if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]>last["MA70"]>last["MA100"]:
+            trend="صاعد قوي"
+        elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]<last["MA70"]<last["MA100"]:
+            trend="هابط قوي"
 
         candle = detect_candle(float(last["Open"]), float(last["High"]), float(last["Low"]), float(last["Close"]))
+        engulf = detect_engulfing(df)
+        candle_pattern = engulf if engulf else candle
+        is_bull_candle = candle_pattern in ["مطرقة شرائية 🔨", "ابتلاع شرائي ✅"]
+        is_bear_candle = candle_pattern in ["شهاب بيعي ☄️", "ابتلاع بيعي ❌"]
+
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
         
-        if trend=="صاعد" and float(last["Close"])>last["MA10"] and last["MACD"]>last["SIG"] and last["RSI"]<75 and bullish:
-            signal="شراء"
-        elif trend=="هابط" and float(last["Close"])<last["MA10"] and last["MACD"]<last["SIG"] and last["RSI"]>20 and not bullish:
-            signal="بيع"
+        if (near_fib or candle_pattern):
+            if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=70 and (is_bull_candle or near_fib):
+                signal="شراء"
+            elif trend=="هابط قوي" and float(last["Close"])<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=30 and (is_bear_candle or near_fib):
+                signal="بيع"
 
-        return {"price":price,"trend":trend,"signal":signal,"atr":atr,"candle":candle if candle else "زخم"}
+        return {"price":price,"trend":trend,"signal":signal,"atr":atr,"near_fib":near_fib,"candle":candle_pattern}
     except Exception as e:
-        print(f"Error {symbol}:{e}"); return None
+        print(f"Error: {e}"); return None
 
 def load_state():
     try:
@@ -99,39 +126,36 @@ def save_state(s):
 
 muscat=get_muscat_time()
 time_str=muscat.strftime("%d-%m-%Y %I:%M %p")
-symbols={"GC=F":"الذهب","SI=F":"الفضة","BTC-USD":"البيتكوين"}
 state=load_state()
 exness_gold = get_exness_spot()
 
-for sym,name in symbols.items():
-    if not is_market_open(sym,muscat): continue
-    spot = exness_gold if name=="الذهب" else None
-    an=get_analysis(sym, spot_price=spot)
-    if not an: continue
-    
-    if an["signal"]:
-        e=an["price"]; a=an["atr"]
-        if an["signal"]=="شراء":
-            sl=e-a*1.5; tp1=e+a*1; tp2=e+a*2; tp3=e+a*3
-        else:
-            sl=e+a*1.5; tp1=e-a*1; tp2=e-a*2; tp3=e-a*3
+if not is_market_open(muscat):
+    send(f"⏰ {time_str}\n🥇 الذهب مغلق")
+else:
+    an=get_analysis(spot_price=exness_gold)
+    if an:
+        if an["signal"]:
+            e=an["price"]; a=an["atr"]
+            if an["signal"]=="شراء":
+                sl=e-a*2; tp1=e+a*1.5; tp2=e+a*3; tp3=e+a*4.5
+            else:
+                sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
 
-        msg=(f"🚀🚀🚀 ادخل الان - {name} 🚀🚀🚀\n\n"
-             f"⏰ {time_str}\n"
-             f"💰 {e:.2f}\n"
-             f"📈 {an['trend']} - {an['candle']}\n\n"
-             f"اشارة: {an['signal']}\n"
-             f"دخول: {e:.2f}\n"
-             f"هدف1: {tp1:.2f}\n"
-             f"هدف2: {tp2:.2f}\n"
-             f"هدف3: {tp3:.2f}\n"
-             f"وقف: {sl:.2f}\n\n"
-             f"⚠️ عدواني - ادارة راس مال صارمة")
-        
-        for i in range(3):
+            msg=(f"🚀 ادخل الان - الذهب\n\n"
+                 f"⏰ {time_str}\n"
+                 f"💰 {e:.2f} (Exness)\n"
+                 f"📈 {an['trend']}\n"
+                 f"🕯️ {an['candle']}\n"
+                 f"📐 فيبو: {an['near_fib']}\n\n"
+                 f"اشارة: {an['signal']}\n"
+                 f"دخول: {e:.2f}\n"
+                 f"هدف1: {tp1:.2f}\n"
+                 f"هدف2: {tp2:.2f}\n"
+                 f"هدف3: {tp3:.2f}\n"
+                 f"وقف: {sl:.2f}")
             send(msg)
-            time.sleep(1.5)
+        else:
+            send(f"⏰ {time_str}\n🥇 الذهب: {an['price']:.2f}\n📈 {an['trend']}\n🤖 لا يوجد اشارة - معتدل 30/70")
 
 save_state(state)
-send(f"⏰ {time_str}\n🤖 عدواني شغال - يرن 3x - تم تصليح الاحد\nالذهب {exness_gold if exness_gold else '...'}")
-print("Done aggressive fixed")
+print("Done Gold Only")
