@@ -2,17 +2,13 @@ import os, requests, datetime, yfinance as yf, pandas as pd, numpy as np, json
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
-
-print(f"TOKEN exists: {bool(TOKEN)} len={len(TOKEN) if TOKEN else 0}")
-print(f"CHAT exists: {bool(CHAT)} value={CHAT}")
-
 TG_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 STATE_FILE = "trend_state.json"
 
 def send(text):
     try:
         r = requests.post(TG_URL, data={"chat_id": CHAT, "text": text}, timeout=15)
-        print(f"Telegram response: {r.status_code} {r.text[:200]}")
+        print(f"Telegram response: {r.status_code}")
         return r
     except Exception as e:
         print(f"Telegram send error: {e}")
@@ -37,19 +33,9 @@ def rsi(series, p=14):
     rs = gain / loss
     return 100 - (100/(1+rs))
 
-def detect_candle(o,h,l,c, prev_o, prev_c):
-    body = abs(c-o); rng = h-l
-    if rng == 0: return "عادية"
-    upper = h - max(o,c); lower = min(o,c) - l
-    if body/rng < 0.1: return "دوجي"
-    if lower > body*2 and upper < body*0.5 and body/rng < 0.4: return "همر ✅"
-    if upper > body*2 and lower < body*0.5 and body/rng < 0.4: return "شهاب ✅"
-    if c > o and prev_c < prev_o and c > prev_o and o < prev_c: return "ابتلاعية صاعدة ✅"
-    if c < o and prev_c > prev_o and c < prev_o and o > prev_c: return "ابتلاعية هابطة ✅"
-    return "عادية"
-
 def get_analysis(symbol):
     try:
+        # جلب مباشر من السوق الفوري
         df = yf.download(symbol, period="10d", interval="5m", progress=False, auto_adjust=True)
         if len(df) < 200: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
@@ -57,32 +43,25 @@ def get_analysis(symbol):
         df["MA10"]=close.rolling(10).mean(); df["MA20"]=close.rolling(20).mean()
         df["MA30"]=close.rolling(30).mean(); df["MA50"]=close.rolling(50).mean()
         df["MA70"]=close.rolling(70).mean(); df["MA100"]=close.rolling(100).mean()
-        df["MA200"]=close.rolling(200).mean()
         ema12=close.ewm(span=12).mean(); ema26=close.ewm(span=26).mean()
         df["MACD"]=ema12-ema26; df["SIG"]=df["MACD"].ewm(span=9).mean()
         df["RSI"]=rsi(close)
         tr=pd.concat([high-low,(high-close.shift()).abs(),(low-close.shift()).abs()],axis=1).max(axis=1)
         df["ATR"]=tr.rolling(14).mean()
-        last100=df.tail(100)
-        hh=last100["High"].max(); ll=last100["Low"].min(); diff=hh-ll
-        fib618=hh-diff*0.618; fib50=hh-diff*0.5; fib786=hh-diff*0.786
-        last=df.iloc[-1]; prev=df.iloc[-2]
+        last=df.iloc[-1]
         price=float(last["Close"]); atr=float(last["ATR"])
         trend="عرضي"
         if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]>last["MA70"]>last["MA100"]:
             trend="صاعد قوي"
         elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]<last["MA70"]<last["MA100"]:
             trend="هابط قوي"
-        candle=detect_candle(float(last["Open"]),float(last["High"]),float(last["Low"]),float(last["Close"]),float(prev["Open"]),float(prev["Close"]))
-        rng=float(last["High"]-last["Low"])
-        block=rng > atr*1.8
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
         if trend=="صاعد قوي" and price>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=75:
             signal="شراء"
         elif trend=="هابط قوي" and price<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=25:
             signal="بيع"
-        return {"price":price,"trend":trend,"signal":signal,"rsi":float(last["RSI"]),"atr":atr,"fib618":fib618,"fib50":fib50,"fib786":fib786,"candle":candle,"block":block}
+        return {"price":price,"trend":trend,"signal":signal,"atr":atr}
     except Exception as e:
         print(f"Error {symbol}:{e}"); return None
 
@@ -92,7 +71,6 @@ def load_state():
             with open(STATE_FILE,"r") as f: return json.load(f)
     except: pass
     return {}
-
 def save_state(state):
     try:
         with open(STATE_FILE,"w") as f: json.dump(state,f)
@@ -100,12 +78,13 @@ def save_state(state):
 
 muscat=get_muscat_time()
 time_str=muscat.strftime("%d-%m %Y %I:%M %p")
-print(f"Time Muscat: {time_str}")
 
-symbols={"GC=F":"الذهب","SI=F":"الفضة","BTC-USD":"البيتكوين"}
-
-if muscat.hour==15 and 30 <= muscat.minute < 35:
-    send(f"⚠️ تنبيه خبر مهم الساعة 4:30م مسقط\n{time_str}")
+# === المصدر المباشر من السوق ===
+symbols={
+    "XAUUSD=X":"الذهب", # ذهب فوري مباشر
+    "XAGUSD=X":"الفضة", # فضة فورية مباشرة
+    "BTC-USD":"البيتكوين" # بيتكوين مباشر
+}
 
 state=load_state()
 prices_text=[]
@@ -125,7 +104,6 @@ for sym,name in symbols.items():
             sl=e-a*2; tp1=e+a*1.5; tp2=e+a*3; tp3=e+a*4.5
         else:
             sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
-        # رسالة الصفقة النهائية المطلوبة
         msg=(f"🚀 دخول الان - {name}\n\n"
              f"الوقت والتاريخ: {time_str}\n"
              f"السعر: {e:.2f}\n"
@@ -140,10 +118,6 @@ for sym,name in symbols.items():
     prices_text.append(f"{name}: {an['price']:.2f}")
 
 save_state(state)
-
-# الرسالة الدورية كل 5 دقايق
-msg=f"🤖 GoldSniper - {time_str}\n\n"
-msg+="\n".join(prices_text)+"\n\n"
-msg+="✅ البوت شغال كل 5د"
+msg=f"🤖 GoldSniper - {time_str}\n\n" + "\n".join(prices_text) + "\n\n✅ البوت شغال كل 5د - سعر مباشر"
 send(msg)
 print("Done")
