@@ -1,18 +1,18 @@
-name: Trading Bot
+name: GoldSniper
 on:
-  workflow_dispatch:
   schedule:
     - cron: '*/5 * * * *'
+  workflow_dispatch:
 jobs:
   bot:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-      - run: pip install requests
+          python-version: '3.10'
+      - run: pip install -r requirements.txt
       - run: python main.py
         env:
-          BOT_TOKEN: ${{ secrets.TG_TOKEN }}
-          CHAT_ID: ${{ secrets.TG_CHAT }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
