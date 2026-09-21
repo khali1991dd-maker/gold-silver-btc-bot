@@ -2,13 +2,21 @@ import os, requests, datetime, yfinance as yf, pandas as pd, numpy as np, json
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
+
+print(f"TOKEN exists: {bool(TOKEN)} len={len(TOKEN) if TOKEN else 0}")
+print(f"CHAT exists: {bool(CHAT)} value={CHAT}")
+
 TG_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 STATE_FILE = "trend_state.json"
 
 def send(text):
     try:
-        requests.post(TG_URL, data={"chat_id": CHAT, "text": text}, timeout=15)
-    except: pass
+        r = requests.post(TG_URL, data={"chat_id": CHAT, "text": text}, timeout=15)
+        print(f"Telegram response: {r.status_code} {r.text[:200]}")
+        return r
+    except Exception as e:
+        print(f"Telegram send error: {e}")
+        return None
 
 def get_muscat_time():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=4)
@@ -33,13 +41,9 @@ def detect_candle(o,h,l,c, prev_o, prev_c):
     body = abs(c-o); rng = h-l
     if rng == 0: return "عادية"
     upper = h - max(o,c); lower = min(o,c) - l
-    # دوجي
     if body/rng < 0.1: return "دوجي"
-    # همر
     if lower > body*2 and upper < body*0.5 and body/rng < 0.4: return "همر ✅"
-    # شهاب
     if upper > body*2 and lower < body*0.5 and body/rng < 0.4: return "شهاب ✅"
-    # ابتلاعية
     if c > o and prev_c < prev_o and c > prev_o and o < prev_c: return "ابتلاعية صاعدة ✅"
     if c < o and prev_c > prev_o and c < prev_o and o > prev_c: return "ابتلاعية هابطة ✅"
     return "عادية"
@@ -59,31 +63,25 @@ def get_analysis(symbol):
         df["RSI"]=rsi(close)
         tr=pd.concat([high-low,(high-close.shift()).abs(),(low-close.shift()).abs()],axis=1).max(axis=1)
         df["ATR"]=tr.rolling(14).mean()
-        # فيبوناتشي 61.8 و 50 و 78.6
         last100=df.tail(100)
         hh=last100["High"].max(); ll=last100["Low"].min(); diff=hh-ll
         fib618=hh-diff*0.618; fib50=hh-diff*0.5; fib786=hh-diff*0.786
-
         last=df.iloc[-1]; prev=df.iloc[-2]
         price=float(last["Close"]); atr=float(last["ATR"])
-
         trend="عرضي ❌ لا دخول"
         if last["MA10"]>last["MA20"]>last["MA30"]>last["MA50"]>last["MA70"]>last["MA100"]:
             trend="صاعد قوي"
         elif last["MA10"]<last["MA20"]<last["MA30"]<last["MA50"]<last["MA70"]<last["MA100"]:
             trend="هابط قوي"
-
         candle=detect_candle(float(last["Open"]),float(last["High"]),float(last["Low"]),float(last["Close"]),float(prev["Open"]),float(prev["Close"]))
         rng=float(last["High"]-last["Low"])
         block=rng > atr*1.8
         bullish=float(last["Close"])>float(last["Open"])
-
         signal=None
         if trend=="صاعد قوي" and price>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=75:
             signal="شراء"
         elif trend=="هابط قوي" and price<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=25:
             signal="بيع"
-
         return {"price":price,"trend":trend,"signal":signal,"rsi":float(last["RSI"]),"atr":atr,"fib618":fib618,"fib50":fib50,"fib786":fib786,"candle":candle,"block":block}
     except Exception as e:
         print(f"Error {symbol}:{e}"); return None
@@ -100,7 +98,6 @@ def save_state(state):
         with open(STATE_FILE,"w") as f: json.dump(state,f)
     except: pass
 
-# MAIN
 muscat=get_muscat_time()
 time_str=muscat.strftime("%d-%m %Y %I:%M %p")
 print(f"Time Muscat: {time_str}")
@@ -108,7 +105,7 @@ print(f"Time Muscat: {time_str}")
 symbols={"GC=F":"الذهب","SI=F":"الفضة","BTC-USD":"البيتكوين"}
 
 if muscat.hour==15 and 30 <= muscat.minute < 35:
-    send(f"⚠️ تنبيه خبر مهم الساعة 4:30م مسقط\nالذهب والبيتكوين قد يتحرك بقوة\n{time_str}")
+    send(f"⚠️ تنبيه خبر مهم الساعة 4:30م مسقط\n{time_str}")
 
 state=load_state()
 full_report=[]; closed_report=[]; trade_sent=False
@@ -121,13 +118,10 @@ for sym,name in symbols.items():
     if not an:
         full_report.append(f"{name}: جلب بيانات...")
         continue
-
-    # 🔄 تغيير ترند
     last_trend=state.get(sym,"")
     if last_trend and last_trend!= an["trend"]:
         send(f"🔄 تغيير ترند {name} من {last_trend} الى {an['trend']}\n{time_str}\nالسعر: {an['price']:.2f}")
     state[sym]=an["trend"]
-
     if an["signal"]:
         e=an["price"]; a=an["atr"]
         if an["signal"]=="شراء":
@@ -137,11 +131,9 @@ for sym,name in symbols.items():
         msg=f"🚀 ادخل الصفقة الان - {name}\n\nالتاريخ: {time_str}\nالسعر: {e:.2f}\nالترند: {an['trend']}\nالاشارة: {an['signal']}\nRSI: {an['rsi']:.1f}\nالشمعة: {an['candle']}\nبلوك: {'يوجد ✅' if an['block'] else 'لا'}\nفيبو 61.8%: {an['fib618']:.2f}\nفيبو 50%: {an['fib50']:.2f}\nفيبو 78.6%: {an['fib786']:.2f}\n\nالدخول: {e:.2f}\nهدف1: {tp1:.2f}\nهدف2: {tp2:.2f}\nهدف3: {tp3:.2f}\nوقف: {sl:.2f}"
         send(msg)
         trade_sent=True
-
     full_report.append(f"{name}: {an['price']:.2f} | {an['trend']} | RSI {an['rsi']:.0f} | {an['candle']} | {an['signal'] if an['signal'] else 'انتظار'}")
 
 save_state(state)
-
 msg=f"🤖 GoldSniper - {time_str}\n\n"
 if closed_report: msg+="\n".join(closed_report)+"\n\n"
 if full_report: msg+="\n".join(full_report)+"\n\n"
