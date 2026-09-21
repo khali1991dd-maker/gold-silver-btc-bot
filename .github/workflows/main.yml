@@ -1,4 +1,4 @@
-name: GoldSniper
+name: bot
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -12,7 +12,8 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -r requirements.txt
-      - run: python main.py
+      - name: Run python main.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
