@@ -17,10 +17,10 @@ def get_muscat_time():
 def is_market_open(symbol, muscat):
     if "BTC" in symbol: return True
     wd=muscat.weekday(); h=muscat.hour
+    # تصليح: يقفل جمعة 11 بالليل والسبت كامل فقط
     if wd==4 and h>=23: return False
     if wd==5: return False
-    if wd==6: return False
-    if wd==0 and h<1: return False
+    if wd==6 and h<1: return False
     return True
 
 def rsi(series, p=14):
@@ -67,7 +67,6 @@ def get_analysis(symbol, spot_price=None):
         price = spot_price if spot_price else float(last["Close"])
         atr=float(last["ATR"])
 
-        # ترند مخفف
         trend="عرضي"
         if last["MA10"]>last["MA20"]>last["MA30"]:
             trend="صاعد"
@@ -78,7 +77,6 @@ def get_analysis(symbol, spot_price=None):
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
         
-        # منطق عدواني - يعطي اشارة اسرع
         if trend=="صاعد" and float(last["Close"])>last["MA10"] and last["MACD"]>last["SIG"] and last["RSI"]<75 and bullish:
             signal="شراء"
         elif trend=="هابط" and float(last["Close"])<last["MA10"] and last["MACD"]<last["SIG"] and last["RSI"]>20 and not bullish:
@@ -135,5 +133,5 @@ for sym,name in symbols.items():
             time.sleep(1.5)
 
 save_state(state)
-send(f"⏰ {time_str}\n🤖 عدواني شغال - يرن 3x\nالذهب {exness_gold if exness_gold else '...'}")
-print("Done aggressive")
+send(f"⏰ {time_str}\n🤖 عدواني شغال - يرن 3x - تم تصليح الاحد\nالذهب {exness_gold if exness_gold else '...'}")
+print("Done aggressive fixed")
