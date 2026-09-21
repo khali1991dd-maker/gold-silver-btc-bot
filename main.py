@@ -104,10 +104,12 @@ def get_analysis(symbol, spot_price=None):
 
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
-        if near_fib and candle_pattern:
-            if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=75 and is_bull_candle:
+        
+        # رقم 1: فيبو أو شمعة
+        if (near_fib or candle_pattern):
+            if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=75 and (is_bull_candle or near_fib):
                 signal="شراء"
-            elif trend=="هابط قوي" and float(last["Close"])<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=25 and is_bear_candle:
+            elif trend=="هابط قوي" and float(last["Close"])<last["MA10"] and not bullish and last["MACD"]<last["SIG"] and last["RSI"]>=25 and (is_bear_candle or near_fib):
                 signal="بيع"
 
         return {"price":price,"trend":trend,"signal":signal,"atr":atr,"fib":fib_levels,"near_fib":near_fib,"candle":candle_pattern,"high":swing_high,"low":swing_low}
@@ -160,7 +162,7 @@ for sym,name in symbols.items():
 
         msg=(f"🚀 ادخل الان - {name}\n\n"
              f"⏰ الوقت والتاريخ: {time_str}\n"
-             f"💰 السعر: {e:.2f}\n"
+             f"💰 السعر: {e:.2f} (Exness)\n"
              f"📈 نوع الترند: {an['trend']}\n"
              f"🕯️ الشمعة: {an['candle']}\n"
              f"📐 فيبو: {an['near_fib']}\n\n"
@@ -181,7 +183,7 @@ status_msg = (
     f"🥇 سعر الذهب: {gold_p}\n"
     f"🥈 سعر الفضة: {silver_p}\n"
     f"₿ سعر البيتكوين: {btc_p}\n\n"
-    f"🤖 البوت شغال ✅"
+    f"🤖 البوت شغال ✅ - متوازن"
 )
 send(status_msg)
 print("Done")
