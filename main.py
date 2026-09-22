@@ -37,13 +37,13 @@ t_str=muscat.strftime("%d-%m-%Y %I:%M %p")
 if not is_market_open(muscat):
     send(f"⏰ {t_str}\n🥇 مغلق")
 else:
-    df=yf.download("GC=F", period="2d", interval="1m", progress=False, auto_adjust=True)
+    # غيرنا لفريم 5 دقايق
+    df=yf.download("GC=F", period="5d", interval="5m", progress=False, auto_adjust=True)
     if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
     c=df["Close"]
     df["MA21"]=c.rolling(21).mean()
     df["MA55"]=c.rolling(55).mean()
     df["RSI"]=rsi(c,14)
-    # نفس شارتك MACD(5,20,30)
     df["MACD"]=c.ewm(span=5).mean() - c.ewm(span=20).mean()
     df["SIG"]=df["MACD"].ewm(span=30).mean()
     tr=pd.concat([df["High"]-df["Low"],(df["High"]-c.shift()).abs(),(df["Low"]-c.shift()).abs()],axis=1).max(axis=1)
@@ -59,32 +59,31 @@ else:
     sell_cross = prev["MACD"] > prev["SIG"] and last["MACD"] < last["SIG"]
 
     signal=None
-    # منع التشبع 30/70
     if r < 30 or r > 70:
         signal=None
     else:
-        if ma_trend=="صاعد" and buy_cross and r < 70: signal="شراء"
-        elif ma_trend=="هابط" and sell_cross and r > 30: signal="بيع"
+        if ma_trend=="صاعد" and buy_cross: signal="شراء"
+        elif ma_trend=="هابط" and sell_cross: signal="بيع"
 
     if signal:
         sl=price-atr*2 if signal=="شراء" else price+atr*2
         tp1=price+atr*1.5 if signal=="شراء" else price-atr*1.5
         tp2=price+atr*3 if signal=="شراء" else price-atr*3
         tp3=price+atr*4.5 if signal=="شراء" else price-atr*4.5
-        msg=(f"🚀 {signal} الان [1M 21/55 MACD 5,20,30]\n⏰ {t_str}\n💰 {price:.2f}\n"
-             f"📈 {ma_trend} 21/55\n📉 MACD {'صاعد' if buy_cross else 'هابط'}\n📊 RSI {r:.1f} (طبيعي)\n\n"
+        msg=(f"🚀 {signal} الان [M5 21/55 MACD 5,20,30]\n⏰ {t_str}\n💰 {price:.2f}\n"
+             f"📈 {ma_trend} 21/55\n📉 MACD {'صاعد' if buy_cross else 'هابط'}\n📊 RSI {r:.1f}\n\n"
              f"دخول {price:.2f}\nهدف1 {tp1:.2f}\nهدف2 {tp2:.2f}\nهدف3 {tp3:.2f}\nوقف {sl:.2f}")
         for i in range(3):
             send(msg)
             time.sleep(1)
     else:
         if r < 30:
-            reason=f"تشبع بيعي RSI {r:.1f} < 30 ممنوع البيع"
+            reason=f"تشبع بيعي RSI {r:.1f} < 30"
         elif r > 70:
-            reason=f"تشبع شرائي RSI {r:.1f} > 70 ممنوع الشراء"
+            reason=f"تشبع شرائي RSI {r:.1f} > 70"
         else:
             macd_s="صاعد" if last["MACD"]>last["SIG"] else "هابط"
-            reason=f"{ma_trend} 21/55 | MACD {macd_s} | لا تقاطع"
-        send(f"⏰ {t_str}\n🥇 {price:.2f} [1M]\n📊 RSI {r:.1f}\n🚫 {reason}\n🤖 لا اشارة - تشبع 30/70 مفعل")
+            reason=f"{ma_trend} 21/55 | MACD {macd_s}"
+        send(f"⏰ {t_str}\n🥇 {price:.2f} [M5]\n📊 RSI {r:.1f}\n🚫 {reason}\n🤖 لا اشارة")
 
-print("Done 30/70 block")
+print("Done M5")
