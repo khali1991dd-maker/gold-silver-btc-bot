@@ -110,4 +110,25 @@ else:
             if an["signal"]=="شراء":
                 sl=e-a*2; tp1=e+a*1.5; tp2=e+a*3; tp3=e+a*4.5
             else:
-                sl=e+a*2; tp1
+                sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
+
+            msg=(f"🚀🚀🚀 ادخل الان - 1M 🚀🚀🚀\n\n"
+                 f"⏰ {t_str}\n"
+                 f"💰 {e:.2f}\n"
+                 f"📈 {an['trend']} (20>50>100>200)\n"
+                 f"📊 RSI: {an['rsi']:.1f}\n"
+                 f"📐 فيبو: {an['fib']}\n\n"
+                 f"اشارة: {an['signal']}\n"
+                 f"دخول: {e:.2f}\n"
+                 f"هدف1: {tp1:.2f}\n"
+                 f"هدف2: {tp2:.2f}\n"
+                 f"هدف3: {tp3:.2f}\n"
+                 f"وقف: {sl:.2f}")
+
+            for i in range(3):
+                send(msg)
+                time.sleep(1.5)
+        else:
+            send(f"⏰ {t_str}\n🥇 {an['price']:.2f} [1M]\n📈 {an['trend']}\n📊 RSI {an['rsi']:.1f}\n📐 {an['fib']}\n🤖 لا اشارة - 20/50/100/200")
+
+print("Done 1M fixed")
