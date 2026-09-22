@@ -36,14 +36,27 @@ def get_exness_price():
         except: time.sleep(1)
     return None
 
-def save_price(p):
-    data=[]
-    if os.path.exists(FILE):
-        try: data=json.load(open(FILE))
-        except: data=[]
-    data.append({"price": p})
-    data=data[-250:]
-    with open(FILE,"w") as f: json.dump(data,f)
+def fast_fill_exness():
+    # جيب 250 شمعة من ياهو وعدلها لسعر إكسنس
+    ex_price = get_exness_price()
+    if ex_price is None: return False
+    try:
+        df = yf.download("GC=F", period="1d", interval="1m", progress=False, auto_adjust=True)
+        if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
+        if df.empty or len(df)<200: return False
+        yahoo_last = float(df["Close"].iloc[-1])
+        diff = ex_price - yahoo_last # فرق إكسنس وياهو
+
+        # عدل كل الاسعار بفرق إكسنس
+        prices = (df["Close"] + diff).tail(250).tolist()
+        data = [{"price": float(p)} for p in prices]
+        # اضف السعر الحالي
+        data.append({"price": ex_price})
+        data = data[-250:]
+        with open(FILE,"w") as f: json.dump(data,f)
+        return True
+    except:
+        return False
 
 def calc_from_exness():
     if not os.path.exists(FILE): return None
@@ -67,54 +80,49 @@ w_time=now.strftime("%d-%m-%Y %I:%M %p")
 if not is_open(now):
     send(f"⏰ {w_time} - M1\n🥇 السوق مغلق"); exit()
 
+# اذا الملف فاضي - عبيه بسرعة
+if not os.path.exists(FILE) or os.path.getsize(FILE) < 100:
+    ok = fast_fill_exness()
+    if not ok:
+        send(f"⏰ {w_time}\n⚠️ فشل التعبئة السريعة"); exit()
+
 price = get_exness_price()
-if price is None:
-    send(f"⏰ {w_time}\n⚠️ فشل جلب سعر إكسنس"); exit()
+if price is None: exit()
 
-# احفظ سعر إكسنس كل دقيقة
-save_price(price)
+# حدث الملف بسعر جديد
+try:
+    data=json.load(open(FILE))
+    data.append({"price": price})
+    data=data[-250:]
+    json.dump(data, open(FILE,"w"))
+except: pass
 
-# احسب من إكسنس
 result = calc_from_exness()
-
 if result is None:
-    # اول 200 دقيقة - نستخدم ياهو مؤقتاً
-    df = yf.download("GC=F", period="2d", interval="1m", progress=False, auto_adjust=True)
-    if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-    c=df["Close"]
-    df["ema20"]=c.ewm(span=20).mean()
-    df["ema50"]=c.ewm(span=50).mean()
-    df["ema100"]=c.ewm(span=100).mean()
-    df["ema200"]=c.ewm(span=200).mean()
-    df["ema200_14"]=df["ema200"].shift(14)
-    df["rsi"]=rsi_func(c,14)
-    ema20=float(df["ema20"].iloc[-1]); ema50=float(df["ema50"].iloc[-1]); ema100=float(df["ema100"].iloc[-1])
-    ema200_0=float(df["ema200"].iloc[-1]); ema200_14=float(df["ema200_14"].iloc[-1]); r=float(df["rsi"].iloc[-1])
-    count=len(c); source="ياهو مؤقت - بيجمع بيانات إكسنس"
-else:
-    ema20,ema50,ema100,ema200_0,ema200_14,r,count=result
-    source=f"إكسنس ✅ {count}/250"
+    send(f"⏰ {w_time}\n⚠️ لسه يجمع"); exit()
 
-# تحليل
-signal=None; reason=""
+ema20,ema50,ema100,ema200_0,ema200_14,r,count=result
+source=f"إكسنس ✅ سريع {count}/250"
+
 up_filter=price>ema200_14; down_filter=price<ema200_14
 up_order=ema20>ema50 and ema50>ema100
 down_order=ema20<ema50 and ema50<ema100
 
+signal=None; reason=""
 if r <= 30 and up_filter and up_order:
-    signal="شراء"; reason=f"تشبع بيعي RSI={r:.1f} <=30 + فوق EMA200(14)={ema200_14:.1f}"
+    signal="شراء"; reason=f"تشبع بيعي RSI={r:.1f} <=30 + فوق 200(14)={ema200_14:.1f}"
 elif r <= 35 and up_filter and price>ema20:
-    signal="شراء"; reason=f"RSI={r:.1f} قريب 30 + فوق EMA200(14)"
+    signal="شراء"; reason=f"RSI={r:.1f} قريب 30 + فوق 200(14)"
 elif r >= 70 and down_filter and down_order:
-    signal="بيع"; reason=f"تشبع شرائي RSI={r:.1f} >=70 + تحت EMA200(14)={ema200_14:.1f}"
+    signal="بيع"; reason=f"تشبع شرائي RSI={r:.1f} >=70 + تحت 200(14)={ema200_14:.1f}"
 elif r >= 65 and down_filter and price<ema20:
-    signal="بيع"; reason=f"RSI={r:.1f} قريب 70 + تحت EMA200(14)"
+    signal="بيع"; reason=f"RSI={r:.1f} قريب 70 + تحت 200(14)"
 
 if signal:
     tp1=price+3 if signal=="شراء" else price-3
     tp2=price+6 if signal=="شراء" else price-6
     sl=price-4 if signal=="شراء" else price+4
-    msg=(f"⚡️ اشارة {signal} - M1 إكسنس\n"
+    msg=(f"⚡️ اشارة {signal} - M1 إكسنس سريع\n"
          f"⏰ {w_time}\n"
          f"🥇 سعر الذهب: {price:.2f} [{source}]\n"
          f"📦 {reason}\n"
