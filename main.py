@@ -60,7 +60,8 @@ def detect_engulfing(df):
 
 def get_analysis(spot_price=None):
     try:
-        df=yf.download("GC=F", period="10d", interval="5m", progress=False, auto_adjust=True)
+        # دقيقة - يومين فقط لان yfinance ما يعطي اكثر
+        df=yf.download("GC=F", period="2d", interval="1m", progress=False, auto_adjust=True)
         if len(df)<200: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
         close=df["Close"]; high=df["High"]; low=df["Low"]; open_=df["Open"]
@@ -101,7 +102,7 @@ def get_analysis(spot_price=None):
 
         bullish=float(last["Close"])>float(last["Open"])
         signal=None
-        
+
         if (near_fib or candle_pattern):
             if trend=="صاعد قوي" and float(last["Close"])>last["MA10"] and bullish and last["MACD"]>last["SIG"] and last["RSI"]<=70 and (is_bull_candle or near_fib):
                 signal="شراء"
@@ -140,10 +141,10 @@ else:
             else:
                 sl=e+a*2; tp1=e-a*1.5; tp2=e-a*3; tp3=e-a*4.5
 
-            msg=(f"🚀🚀🚀 ادخل الان - الذهب 🚀🚀🚀\n\n"
+            msg=(f"🚀🚀🚀 ادخل الان - دقيقة 🚀🚀🚀\n\n"
                  f"⏰ {time_str}\n"
                  f"💰 {e:.2f}\n"
-                 f"📈 {an['trend']} (4MA)\n"
+                 f"📈 {an['trend']} (1M - 4MA)\n"
                  f"🕯️ {an['candle']}\n"
                  f"📐 {an['near_fib']}\n\n"
                  f"اشارة: {an['signal']}\n"
@@ -152,12 +153,12 @@ else:
                  f"هدف2: {tp2:.2f}\n"
                  f"هدف3: {tp3:.2f}\n"
                  f"وقف: {sl:.2f}")
-            
+
             for i in range(3):
                 send(msg)
                 time.sleep(1.5)
         else:
-            send(f"⏰ {time_str}\n🥇 {an['price']:.2f}\n📈 {an['trend']}\n🤖 لا يوجد اشارة - 4 متوسطات")
+            send(f"⏰ {time_str}\n🥇 {an['price']:.2f} [1M]\n📈 {an['trend']}\n🤖 لا يوجد اشارة - فريم دقيقة")
 
 save_state(state)
-print("Done 4MA 3x")
+print("Done 1M 4MA 3x")
