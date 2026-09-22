@@ -1,4 +1,4 @@
-import os, requests, datetime, yfinance as yf, pandas as pd, json, time
+import os, requests, datetime, yfinance as yf, pandas as pd, time
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
@@ -37,14 +37,12 @@ def get_exness():
 def get_analysis(spot=None):
     try:
         df=yf.download("GC=F", period="2d", interval="1m", progress=False, auto_adjust=True)
-        if len(df)<210: return None
+        if len(df)<100: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
         c=df["Close"]; h=df["High"]; l=df["Low"]
 
-        df["MA20"]=c.rolling(20).mean()
-        df["MA50"]=c.rolling(50).mean()
-        df["MA100"]=c.rolling(100).mean()
-        df["MA200"]=c.rolling(200).mean()
+        df["MA30"]=c.rolling(30).mean()
+        df["MA70"]=c.rolling(70).mean()
         df["RSI"]=rsi(c)
         tr=pd.concat([h-l,(h-c.shift()).abs(),(l-c.shift()).abs()],axis=1).max(axis=1)
         df["ATR"]=tr.rolling(14).mean()
@@ -54,7 +52,7 @@ def get_analysis(spot=None):
         atr=float(last["ATR"])
         rsi_now=float(last["RSI"])
 
-        # فيبو من اخر 100 شمعة
+        # فيبو اخر 100 شمعة
         last100=df.tail(100)
         hi=float(last100["High"].max())
         lo=float(last100["Low"].min())
@@ -69,26 +67,25 @@ def get_analysis(spot=None):
             if d < closest_dist:
                 closest_dist=d
                 closest_label=f"{k} ({v:.2f})"
-            if d < atr*1.5: # موسع من 0.8 الى 1.5
+            if d < atr*1.5:
                 near_fib=f"{k} ({v:.2f})"
                 break
 
-        if not near_fib:
-            fib_display=f"{closest_label} بعيد {closest_dist:.1f}$"
-        else:
-            fib_display=near_fib
+        fib_display = near_fib if near_fib else f"{closest_label} بعيد {closest_dist:.1f}$"
 
-        trend="عرضي"
-        if last["MA20"]>last["MA50"]>last["MA100"]>last["MA200"]:
-            trend="صاعد قوي"
-        elif last["MA20"]<last["MA50"]<last["MA100"]<last["MA200"]:
-            trend="هابط قوي"
+        # ترند 30/70 فقط - اسهل بكثير
+        if last["MA30"] > last["MA70"]:
+            trend="صاعد"
+        elif last["MA30"] < last["MA70"]:
+            trend="هابط"
+        else:
+            trend="عرضي"
 
         signal=None
         if near_fib:
-            if trend=="صاعد قوي" and 35 <= rsi_now <= 70:
+            if trend=="صاعد" and 35 <= rsi_now <= 70:
                 signal="شراء"
-            elif trend=="هابط قوي" and 30 <= rsi_now <= 65:
+            elif trend=="هابط" and 30 <= rsi_now <= 65:
                 signal="بيع"
 
         return {"price":price,"trend":trend,"signal":signal,"rsi":rsi_now,"atr":atr,"fib":fib_display,"has_fib": near_fib is not None}
@@ -115,7 +112,7 @@ else:
             msg=(f"🚀🚀🚀 ادخل الان - 1M 🚀🚀🚀\n\n"
                  f"⏰ {t_str}\n"
                  f"💰 {e:.2f}\n"
-                 f"📈 {an['trend']} (20>50>100>200)\n"
+                 f"📈 {an['trend']} (30>70)\n"
                  f"📊 RSI: {an['rsi']:.1f}\n"
                  f"📐 فيبو: {an['fib']}\n\n"
                  f"اشارة: {an['signal']}\n"
@@ -129,6 +126,6 @@ else:
                 send(msg)
                 time.sleep(1.5)
         else:
-            send(f"⏰ {t_str}\n🥇 {an['price']:.2f} [1M]\n📈 {an['trend']}\n📊 RSI {an['rsi']:.1f}\n📐 {an['fib']}\n🤖 لا اشارة - 20/50/100/200")
+            send(f"⏰ {t_str}\n🥇 {an['price']:.2f} [1M]\n📈 {an['trend']} (30/70)\n📊 RSI {an['rsi']:.1f}\n📐 {an['fib']}\n🤖 لا اشارة")
 
-print("Done 1M fixed")
+print("Done 1M 30-70")
