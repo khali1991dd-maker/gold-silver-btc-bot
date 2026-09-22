@@ -1,7 +1,7 @@
 name: Gold Bot M1
 on:
   schedule:
-    - cron: '* * * * *' # كل دقيقة
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -9,11 +9,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
       - run: pip install requests pandas
-      - run: python bot.py
+      - run: python main.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -21,6 +23,7 @@ jobs:
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@bot.com"
-          git add exness_prices.json
+          git pull --rebase || true
+          git add exness_prices.json || echo "no file yet"
           git commit -m "update ${{ github.run_number }}" || exit 0
-          git push
+          git push || git push --force
