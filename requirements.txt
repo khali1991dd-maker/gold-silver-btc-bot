@@ -1,5 +1,3 @@
-tvdatafeed
 yfinance
 pandas
 requests
-websocket-client
