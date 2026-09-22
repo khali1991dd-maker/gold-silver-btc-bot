@@ -4,6 +4,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
 TG_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 FILE = "exness_prices.json"
+FILE_15 = "exness_15m.json"
 
 def send(text):
     try: requests.post(TG_URL, data={"chat_id": CHAT, "text": text}, timeout=20)
@@ -23,7 +24,7 @@ def rsi_func(s, p=14):
     rs=g/l; return 100-(100/(1+rs))
 
 def get_exness_price():
-    for i in range(5):
+    for _ in range(5):
         try:
             r=requests.get("https://api.gold-api.com/price/XAU", timeout=10).json()
             p=float(r.get('price',0))
@@ -36,107 +37,115 @@ def get_exness_price():
         except: time.sleep(1)
     return None
 
-def fast_fill_exness():
-    # جيب 250 شمعة من ياهو وعدلها لسعر إكسنس
-    ex_price = get_exness_price()
-    if ex_price is None: return False
+def fast_fill():
+    ex = get_exness_price()
+    if ex is None: return False
     try:
-        df = yf.download("GC=F", period="1d", interval="1m", progress=False, auto_adjust=True)
+        df = yf.download("GC=F", period="5d", interval="1m", progress=False, auto_adjust=True)
         if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
-        if df.empty or len(df)<200: return False
-        yahoo_last = float(df["Close"].iloc[-1])
-        diff = ex_price - yahoo_last # فرق إكسنس وياهو
-
-        # عدل كل الاسعار بفرق إكسنس
-        prices = (df["Close"] + diff).tail(250).tolist()
-        data = [{"price": float(p)} for p in prices]
-        # اضف السعر الحالي
-        data.append({"price": ex_price})
-        data = data[-250:]
-        with open(FILE,"w") as f: json.dump(data,f)
+        diff = ex - float(df["Close"].iloc[-1])
+        p1 = (df["Close"] + diff).tail(250).tolist()
+        json.dump([{"price": float(x)} for x in p1], open(FILE,"w"))
+        df15 = yf.download("GC=F", period="5d", interval="15m", progress=False, auto_adjust=True)
+        if isinstance(df15.columns, pd.MultiIndex): df15.columns=df15.columns.get_level_values(0)
+        df15["Close"] = df15["Close"] + diff
+        df15["High"] = df15["High"] + diff
+        df15["Low"] = df15["Low"] + diff
+        df15["Open"] = df15["Open"] + diff
+        df15.to_json(FILE_15)
         return True
-    except:
-        return False
+    except: return False
 
-def calc_from_exness():
-    if not os.path.exists(FILE): return None
+def calc_m1():
+    data=json.load(open(FILE))
+    prices=pd.Series([x["price"] for x in data])
+    ma20=prices.ewm(span=20).mean().iloc[-1] # ش0=MA20
+    ma50=prices.ewm(span=50).mean().iloc[-1] # ش0=MA50
+    ma100=prices.ewm(span=100).mean().iloc[-1] # ش0=MA100
+    ma200_14=prices.ewm(span=200).mean().shift(14).iloc[-1] # ش14=MA200
+    rsi=rsi_func(prices,14).iloc[-1]
+    return ma20,ma50,ma100,ma200_14,rsi
+
+def calc_fibo_orderblock():
     try:
-        data=json.load(open(FILE))
-        if len(data) < 200: return None
-        prices=pd.Series([x["price"] for x in data])
-        ema20=prices.ewm(span=20).mean().iloc[-1]
-        ema50=prices.ewm(span=50).mean().iloc[-1]
-        ema100=prices.ewm(span=100).mean().iloc[-1]
-        ema200=prices.ewm(span=200).mean().iloc[-1]
-        ema200_14=prices.ewm(span=200).mean().shift(14).iloc[-1]
-        rsi=rsi_func(prices,14).iloc[-1]
-        return ema20,ema50,ema100,ema200,ema200_14,rsi,len(data)
-    except:
-        return None
+        df=pd.read_json(FILE_15)
+        if len(df)<50: return None
+        high=df["High"].tail(50).max()
+        low=df["Low"].tail(50).min()
+        diff=high-low
+        fib_0=high
+        fib_25=high-diff*0.25
+        fib_50=high-diff*0.5
+        fib_100=low
+        bullish_ob=None; bearish_ob=None
+        for i in range(len(df)-5, 5, -1):
+            if df["Close"].iloc[i] < df["Open"].iloc[i] and df["Close"].iloc[i+1] > df["Open"].iloc[i+1]:
+                bullish_ob=(float(df["Low"].iloc[i]), float(df["High"].iloc[i])); break
+        for i in range(len(df)-5, 5, -1):
+            if df["Close"].iloc[i] > df["Open"].iloc[i] and df["Close"].iloc[i+1] < df["Open"].iloc[i+1]:
+                bearish_ob=(float(df["Low"].iloc[i]), float(df["High"].iloc[i])); break
+        return {"high":high,"low":low,"fib_0":fib_0,"fib_25":fib_25,"fib_50":fib_50,"fib_100":fib_100,"bull_ob":bullish_ob,"bear_ob":bearish_ob}
+    except: return None
 
 now=get_time()
 w_time=now.strftime("%d-%m-%Y %I:%M %p")
-
 if not is_open(now):
     send(f"⏰ {w_time} - M1\n🥇 السوق مغلق"); exit()
 
-# اذا الملف فاضي - عبيه بسرعة
-if not os.path.exists(FILE) or os.path.getsize(FILE) < 100:
-    ok = fast_fill_exness()
-    if not ok:
-        send(f"⏰ {w_time}\n⚠️ فشل التعبئة السريعة"); exit()
-
-price = get_exness_price()
+if not os.path.exists(FILE): fast_fill()
+price=get_exness_price()
 if price is None: exit()
 
-# حدث الملف بسعر جديد
 try:
-    data=json.load(open(FILE))
-    data.append({"price": price})
-    data=data[-250:]
-    json.dump(data, open(FILE,"w"))
+    data=json.load(open(FILE)); data.append({"price":price}); data=data[-250:]; json.dump(data, open(FILE,"w"))
 except: pass
 
-result = calc_from_exness()
-if result is None:
-    send(f"⏰ {w_time}\n⚠️ لسه يجمع"); exit()
+ma20,ma50,ma100,ma200_14,rsi = calc_m1()
+fibo = calc_fibo_orderblock()
 
-ema20,ema50,ema100,ema200_0,ema200_14,r,count=result
-source=f"إكسنس ✅ سريع {count}/250"
+if fibo:
+    fib_txt=f"📐 فيبو 15دق [0-0.25-0.5-1]:\n0%={fibo['fib_0']:.1f} | 25%={fibo['fib_25']:.1f}\n50%={fibo['fib_50']:.1f} | 100%={fibo['fib_100']:.1f}"
+    ob_txt=""
+    if fibo['bull_ob']: ob_txt+=f"🟩 بلوك شرائي: {fibo['bull_ob'][0]:.1f}-{fibo['bull_ob'][1]:.1f}\n"
+    else: ob_txt+="🟩 بلوك شرائي: لا يوجد\n"
+    if fibo['bear_ob']: ob_txt+=f"🟥 بلوك بيعي: {fibo['bear_ob'][0]:.1f}-{fibo['bear_ob'][1]:.1f}"
+    else: ob_txt+="🟥 بلوك بيعي: لا يوجد"
+else:
+    fib_txt="📐 فيبو 15دق: جاري التحميل"; ob_txt=""
 
-up_filter=price>ema200_14; down_filter=price<ema200_14
-up_order=ema20>ema50 and ema50>ema100
-down_order=ema20<ema50 and ema50<ema100
+up_filter=price>ma200_14; down_filter=price<ma200_14
+up_order=ma20>ma50 and ma50>ma100
+down_order=ma20<ma50 and ma50<ma100
+
+near_50 = fibo and abs(price - fibo['fib_50']) < 5 if fibo else False
+near_25 = fibo and abs(price - fibo['fib_25']) < 5 if fibo else False
+near_bull_ob = fibo and fibo['bull_ob'] and fibo['bull_ob'][0]-4 <= price <= fibo['bull_ob'][1]+4 if fibo else False
+near_bear_ob = fibo and fibo['bear_ob'] and fibo['bear_ob'][0]-4 <= price <= fibo['bear_ob'][1]+4 if fibo else False
 
 signal=None; reason=""
-if r <= 30 and up_filter and up_order:
-    signal="شراء"; reason=f"تشبع بيعي RSI={r:.1f} <=30 + فوق 200(14)={ema200_14:.1f}"
-elif r <= 35 and up_filter and price>ema20:
-    signal="شراء"; reason=f"RSI={r:.1f} قريب 30 + فوق 200(14)"
-elif r >= 70 and down_filter and down_order:
-    signal="بيع"; reason=f"تشبع شرائي RSI={r:.1f} >=70 + تحت 200(14)={ema200_14:.1f}"
-elif r >= 65 and down_filter and price<ema20:
-    signal="بيع"; reason=f"RSI={r:.1f} قريب 70 + تحت 200(14)"
+if rsi <= 30 and up_filter and up_order:
+    signal="شراء"; reason=f"RSI={rsi:.1f} <=30 + فوق MA200 ش14={ma200_14:.1f} + 20>50>100"
+    if near_50 or near_25 or near_bull_ob: reason+=" 🔥 ذهبية"
+elif rsi <= 30 and up_filter and (near_50 or near_25 or near_bull_ob):
+    signal="شراء"; reason=f"RSI={rsi:.1f} <=30 + فوق MA200 ش14 + منطقة ذهبية"
+elif rsi >= 70 and down_filter and down_order:
+    signal="بيع"; reason=f"RSI={rsi:.1f} >=70 + تحت MA200 ش14={ma200_14:.1f} + 20<50<100"
+    if near_50 or near_25 or near_bear_ob: reason+=" 🔥 ذهبية"
+elif rsi >= 70 and down_filter and (near_50 or near_25 or near_bear_ob):
+    signal="بيع"; reason=f"RSI={rsi:.1f} >=70 + تحت MA200 ش14 + منطقة ذهبية"
 
 if signal:
     tp1=price+3 if signal=="شراء" else price-3
     tp2=price+6 if signal=="شراء" else price-6
     sl=price-4 if signal=="شراء" else price+4
-    msg=(f"⚡️ اشارة {signal} - M1 إكسنس سريع\n"
-         f"⏰ {w_time}\n"
-         f"🥇 سعر الذهب: {price:.2f} [{source}]\n"
-         f"📦 {reason}\n"
-         f"📈 0: 20={ema20:.2f} | 50={ema50:.2f} | 100={ema100:.2f}\n"
-         f"📈 200: حالي={ema200_0:.2f} | مزاح14={ema200_14:.2f}\n"
-         f"📊 RSI: {r:.2f} (30/70)\n\n"
+    msg=(f"⚡️ اشارة {signal} - M1 إكسنس\n⏰ {w_time}\n🥇 الذهب: {price:.2f} [إكسنس ✅]\n📦 {reason}\n"
+         f"📈 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n"
+         f"📈 ش14: 200={ma200_14:.2f} - {'فوق' if up_filter else 'تحت'}\n"
+         f"📊 RSI14: {rsi:.2f} [30/70]\n{fib_txt}\n{ob_txt}\n\n"
          f"💵 دخول: {price:.2f}\n🎯1: {tp1:.2f} 🎯2: {tp2:.2f} 🛑: {sl:.2f}")
     for _ in range(3): send(msg); time.sleep(1)
 else:
-    trend="فوق 200(14)" if up_filter else "تحت 200(14)"
-    order_txt="20>50>100" if up_order else "20<50<100" if down_order else "عرضي"
-    send(f"⏰ {w_time} - M1 [{source}]\n"
-         f"🥇 سعر الذهب: {price:.2f}\n"
-         f"📈 0: 20={ema20:.2f} | 50={ema50:.2f} | 100={ema100:.2f} - {order_txt}\n"
-         f"📈 200(14): {ema200_14:.2f} - {trend}\n"
-         f"📊 RSI: {r:.2f} (30/70)\n"
-         f"🚫 لا توجد اشارة")
+    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n"
+         f"📈 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n"
+         f"📈 ش14: 200={ma200_14:.2f} - {'فوق' if up_filter else 'تحت'}\n"
+         f"📊 RSI14: {rsi:.2f} [30/70]\n{fib_txt}\n{ob_txt}\n🚫 لا توجد اشارة")
