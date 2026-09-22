@@ -50,7 +50,7 @@ df = yf.download("GC=F", period="3d", interval="1m", progress=False, auto_adjust
 if isinstance(df.columns, pd.MultiIndex): df.columns=df.columns.get_level_values(0)
 
 if df.empty or len(df)<200:
-    send(f"⏰ {w_time}\n⚠️ لا توجد بيانات فريم دقيقة")
+    send(f"⏰ {w_time}\n⚠️ لا توجد بيانات")
     exit()
 
 c,h,l=df["Close"],df["High"],df["Low"]
@@ -64,7 +64,7 @@ df["atr"]=atr_func(h,l,c,14)
 
 price = get_exness_price()
 if price is None:
-    send(f"⏰ الوقت: {w_time} - فريم دقيقة\n⚠️ فشل جلب سعر إكسنس")
+    send(f"⏰ {w_time}\n⚠️ فشل جلب سعر إكسنس")
     exit()
 
 ema20=float(df["ema20"].iloc[-1]); ema50=float(df["ema50"].iloc[-1]); ema100=float(df["ema100"].iloc[-1]); ema200=float(df["ema200"].iloc[-1])
@@ -77,25 +77,31 @@ f0=recent_high; f25=recent_high-diff*0.25; f50=recent_high-diff*0.5; f100=recent
 distance=3.0
 signal=None; entry=0; reason=""
 
-# فلتر ترند قوي - جديد
 trend_up = ema20 > ema50 and ema50 > ema100 and macd > 0 and r > 50 and price > ema20
 trend_down = ema20 < ema50 and ema50 < ema100 and macd < 0 and r < 50 and price < ema20
+trend_down_strong = ema20 < ema50 and macd < -0.5 and r < 40
+trend_up_strong = ema20 > ema50 and macd > 0.5 and r > 60
 
+# 1- اشارات فيبو
 if abs(price-f50) <= distance and trend_up:
-    signal="شراء"; entry=f50; reason=f"فيبو 50% ({f50:.1f}) + ترند صاعد EMA20>50>100 + MACD+"
+    signal="شراء"; entry=f50; reason=f"فيبو 50% ({f50:.1f}) + ترند صاعد"
 elif abs(price-f25) <= distance and trend_up:
-    signal="شراء"; entry=f25; reason=f"فيبو 25% ({f25:.1f}) + ترند صاعد مؤكد"
+    signal="شراء"; entry=f25; reason=f"فيبو 25% ({f25:.1f}) + ترند صاعد"
 elif abs(price-f100) <= distance and trend_down:
-    signal="بيع"; entry=f100; reason=f"فيبو 100% ({f100:.1f}) + ترند هابط EMA20<50<100 + MACD-"
+    signal="بيع"; entry=f100; reason=f"فيبو 100% ({f100:.1f}) + ترند هابط"
 elif abs(price-f0) <= distance and trend_down:
-    signal="بيع"; entry=f0; reason=f"فيبو 0% ({f0:.1f}) + ترند هابط مؤكد"
+    signal="بيع"; entry=f0; reason=f"فيبو 0% ({f0:.1f}) + ترند هابط"
+# 2- اشارات ترند قوي مباشر - زي حالتك الحين
+elif trend_down_strong and price < ema20:
+    signal="بيع"; entry=price; reason=f"هبوط قوي مباشر RSI={r:.1f} MACD={macd:.2f} تحت EMA20"
+elif trend_up_strong and price > ema20:
+    signal="شراء"; entry=price; reason=f"صعود قوي مباشر RSI={r:.1f} MACD={macd:.2f} فوق EMA20"
 
 if signal:
     if signal=="شراء":
         tp1=entry+atr_v*1.5; tp2=entry+atr_v*3; sl=entry-atr_v*2
     else:
         tp1=entry-atr_v*1.5; tp2=entry-atr_v*3; sl=entry+atr_v*2
-
     msg=(f"⚡️ اشارة {signal} - فريم دقيقة M1\n"
            f"⏰ الوقت: {w_time}\n"
            f"🥇 سعر الذهب: {price:.2f} دولار [إكسنس ✅]\n"
@@ -107,8 +113,7 @@ if signal:
            f"🎯 هدف2: {tp2:.2f}\n"
            f"🛑 وقف: {sl:.2f}")
     for _ in range(5):
-        send(msg)
-        time.sleep(2)
+        send(msg); time.sleep(2)
 else:
     d0=abs(price-f0); d25=abs(price-f25); d50=abs(price-f50); d100=abs(price-f100)
     nearest=min(d0,d25,d50,d100)
@@ -118,4 +123,4 @@ else:
          f"📈 متوسطات: 20={ema20:.1f} | 50={ema50:.1f} | 100={ema100:.1f} | 200={ema200:.1f} - ترند {trend_txt}\n"
          f"📊 RSI: {r:.1f} | MACD: {macd:.3f}\n"
          f"📐 فيبو: 0%={f0:.1f} | 25%={f25:.1f} | 50%={f50:.1f} | 100%={f100:.1f}\n"
-         f"🚫 لا توجد اشارة - اقرب مسافة {nearest:.1f}$ | فلتر الترند يمنع الاشارات العكسية")
+         f"🚫 لا توجد اشارة - اقرب مسافة {nearest:.1f}$")
