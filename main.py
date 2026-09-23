@@ -126,7 +126,7 @@ golden = near_fib25 or near_fib50 or in_bull or in_bear
 
 # --- إشارات (تعديل الـ RSI إلى 50 المتوازن) ---
 if strong_down:
-    if rsi >= 50 and golden: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع قوي M1 + 15د 🔥"
+    if rsi >= 45 and golden: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع قوي M1 + 15د 🔥"
     elif rsi >= 48: signal = "SELL"; sig_txt = "🔴 بيع M1"
     else: signal = "WAIT"; sig_txt = "⚪ هبوط قوي - انتظار"
 elif strong_up:
