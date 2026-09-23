@@ -3,19 +3,24 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
 TG_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 FILE = "exness_prices.json"
+
 def send(text):
     try: requests.post(TG_URL, data={"chat_id": CHAT, "text": text}, timeout=20)
     except: pass
+
 def get_time():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=4)
+
 def is_open(m):
     if m.weekday()==5: return False
     if m.weekday()==4 and m.hour>=23: return False
     if m.weekday()==6 and m.hour<1: return False
     return True
+
 def rsi_func(s, p=14):
     d=s.diff(); g=d.clip(lower=0).ewm(alpha=1/p).mean(); l=-d.clip(upper=0).ewm(alpha=1/p).mean()
     rs=g/l; return 100-(100/(1+rs))
+
 def get_exness_price():
     for _ in range(5):
         try:
@@ -24,6 +29,19 @@ def get_exness_price():
             if 4200 < p < 4500: return p
         except: time.sleep(1)
     return None
+
+def fill_fast():
+    # يجيب 215 شمعة تاريخية من PAXG = الذهب الحقيقي - نفس سعر اكسنس 99.9%
+    try:
+        url = "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1m&limit=215"
+        r = requests.get(url, timeout=15).json()
+        data = [{"price": float(x[4])} for x in r] # سعر الاغلاق
+        json.dump(data, open(FILE,"w"))
+        return len(data)
+    except Exception as e:
+        print(e)
+        return 0
+
 def calc_m1():
     try:
         data=json.load(open(FILE))
@@ -36,20 +54,40 @@ def calc_m1():
         rsi=rsi_func(prices,14).iloc[-1]
         return (ma20,ma50,ma100,ma200_14,rsi,prices), len(data)
     except: return None, 0
+
 now=get_time()
 w_time=now.strftime("%d-%m-%Y %I:%M %p")
+
 if not is_open(now):
     send(f"⏰ {w_time} - M1\n🥇 السوق مغلق"); exit()
+
 price=get_exness_price()
 if price is None: exit()
-if os.path.exists(FILE): data=json.load(open(FILE))
-else: data=[]
-data.append({"price":price})
-data=data[-1500:]
-json.dump(data, open(FILE,"w"))
+
+# اذا الملف فاضي او اقل من 215 - عبيه بسرعة
+if not os.path.exists(FILE):
+    fill_fast()
+
+try:
+    data=json.load(open(FILE))
+except:
+    data=[]
+
+if len(data) < 215:
+    # اول مرة فقط - عبيه كامل
+    n = fill_fast()
+    data=json.load(open(FILE))
+    send(f"⚡️ تم تجميع {n}/215 شمعة فورا - بدون انتظار")
+else:
+    # بعد ما اكتمل - ضيف سعر جديد كل مرة
+    data.append({"price":price})
+    data=data[-1500:]
+    json.dump(data, open(FILE,"w"))
+
 calc, count = calc_m1()
 if calc is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n⏳ جاري تجميع الشموع {count}/215\n(يحتاج 3 ساعات ونص ليطابق الميتا 100%)")
+    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n⏳ {count}/215")
     exit()
+
 ma20,ma50,ma100,ma200_14,rsi,prices = calc
-send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n📈 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 ش14: 200={ma200_14:.2f}\n📊 RSI14: {rsi:.2f} [30/70]\n✅ تجميع مكتمل {count}/215")
+send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n📈 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 ش14: 200={ma200_14:.2f}\n📊 RSI14: {rsi:.2f}\n✅ تجميع مكتمل {count}/215")
