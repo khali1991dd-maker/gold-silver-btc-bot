@@ -41,9 +41,19 @@ def get_exness_price():
 def get_m1_data():
     try:
         url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1m&limit=250"
-        r=requests.get(url, timeout=12).json()
+        r=requests.get(url, timeout=15).json()
         if isinstance(r, list) and len(r)>50:
             df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
+            for k in ['h','l','o','c']: df[k]=df[k].astype(float)
+            return df
+    except: pass
+    try:
+        url="https://api.bybit.com/v5/market/kline?category=spot&symbol=PAXGUSDT&interval=1&limit=200"
+        r=requests.get(url, timeout=15).json()
+        data=r.get('result',{}).get('list',[])
+        if len(data)>50:
+            data.reverse()
+            df=pd.DataFrame(data, columns=['start','o','h','l','c','v','turn'])
             for k in ['h','l','o','c']: df[k]=df[k].astype(float)
             return df
     except: pass
@@ -52,9 +62,19 @@ def get_m1_data():
 def get_15m_data():
     try:
         url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=100"
-        r=requests.get(url, timeout=12).json()
+        r=requests.get(url, timeout=15).json()
         if isinstance(r, list) and len(r)>10:
             df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
+            for k in ['h','l','o','c']: df[k]=df[k].astype(float)
+            return df
+    except: pass
+    try:
+        url="https://api.bybit.com/v5/market/kline?category=spot&symbol=PAXGUSDT&interval=15&limit=100"
+        r=requests.get(url, timeout=15).json()
+        data=r.get('result',{}).get('list',[])
+        if len(data)>10:
+            data.reverse()
+            df=pd.DataFrame(data, columns=['start','o','h','l','c','v','turn'])
             for k in ['h','l','o','c']: df[k]=df[k].astype(float)
             return df
     except: pass
@@ -92,7 +112,6 @@ if not is_open(now):
 live_price=get_exness_price()
 if not live_price: exit()
 
-# حفظ لايف للمتابعة فقط
 try: data=json.load(open(FILE))
 except: data=[]
 data.append({"price":live_price})
@@ -102,26 +121,42 @@ json.dump(data, open(FILE,"w"))
 df_m1=get_m1_data()
 df_15=get_15m_data()
 
-if df_m1 is None or len(df_m1)<60:
-    send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ M1 غير جاهز"); exit()
+# فولباك اذا M1 فشل
+if df_m1 is None or len(df_m1)<50:
+    try:
+        if len(data)>=60:
+            prices=pd.Series([x["price"] for x in data])
+            df_m1=pd.DataFrame({"c":prices,"h":prices,"l":prices,"o":prices})
+        else:
+            send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ يجمع M1 {len(data)}/60"); exit()
+    except:
+        send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ M1 غير جاهز"); exit()
 
 if df_15 is None:
-    send(f"⏰ {w_time}\n🥇 لايف: {live_price:.2f}\n⏳ 15د غير جاهز"); exit()
+    if len(data)>=30:
+        prices=[x["price"] for x in data]
+        rows=[]
+        for i in range(0, len(prices), 15):
+            chunk=prices[i:i+15]
+            if len(chunk)>=3:
+                rows.append({"o":chunk[0],"h":max(chunk),"l":min(chunk),"c":chunk[-1]})
+        df_15=pd.DataFrame(rows)
+        if len(df_15)<5:
+            send(f"⏰ {w_time}\n🥇 لايف: {live_price:.2f}\n⏳ 15د غير جاهز"); exit()
+    else:
+        send(f"⏰ {w_time}\n🥇 لايف: {live_price:.2f}\n⏳ 15د غير جاهز"); exit()
 
-# حسابات فريم الدقيقة فقط
 closes=df_m1['c']
 ma20=closes.ewm(span=20, adjust=False).mean().iloc[-1]
 ma50=closes.ewm(span=50, adjust=False).mean().iloc[-1]
 ma100=closes.ewm(span=100, adjust=False).mean().iloc[-1]
 ma200=closes.ewm(span=200, adjust=False).mean().iloc[-1]
-ma200_14=closes.ewm(span=200, adjust=False).mean().shift(14).iloc[-1]
+ma200_14=closes.ewm(span=200, adjust=False).mean().shift(14).iloc[-1] if len(closes)>214 else ma200
 rsi=rsi_func(closes,14).iloc[-1]
-ma20_prev=closes.ewm(span=20, adjust=False).mean().iloc[-6]
+ma20_prev=closes.ewm(span=20, adjust=False).mean().iloc[-6] if len(closes)>6 else ma20
 
-# حسابات 15د للفيبو والبلوك فقط
 fibs,bull_ob,bear_ob=calc_fib_and_ob(df_15)
 
-# فلتر ترند M1
 buy_order = ma20>ma50>ma100
 sell_order = ma20<ma50<ma100
 ma20_down = ma20 < ma20_prev
@@ -131,28 +166,26 @@ above_all = live_price > ma20 and live_price > ma50
 strong_down = sell_order and ma20_down and below_all and live_price < ma200_14
 strong_up = buy_order and ma20_up and above_all and live_price > ma200_14
 
-# ذهبية من 15د فقط
 near_fib25 = abs(live_price-fibs["25"])<4
 near_fib50 = abs(live_price-fibs["50"])<4
 in_bull_ob = bull_ob and bull_ob[0] <= live_price <= bull_ob[1]
 in_bear_ob = bear_ob and bear_ob[0] <= live_price <= bear_ob[1]
 golden_zone = near_fib25 or near_fib50 or in_bull_ob or in_bear_ob
 
-# إشارة دقيقة + تأكيد 15د
 if strong_down:
     if rsi >= 55 and golden_zone:
-        signal="SELL_STRONG"; txt="🔴🔴 بيع M1 مع ترند هابط + تأكيد 15د 🔥"
+        signal="SELL_STRONG"; txt="🔴🔴 بيع M1 مع ترند هابط + 15د 🔥"
     elif rsi >= 45:
         signal="SELL"; txt="🔴 بيع M1 - ترند هابط"
     else:
-        signal="WAIT"; txt="⚪ انتظار - هبوط قوي M1"
+        signal="WAIT"; txt="⚪ انتظار - هبوط M1 قوي"
 elif strong_up:
     if rsi <= 45 and golden_zone:
-        signal="BUY_STRONG"; txt="🟢🟢 شراء M1 مع ترند صاعد + تأكيد 15د 🔥"
+        signal="BUY_STRONG"; txt="🟢🟢 شراء M1 مع ترند صاعد + 15د 🔥"
     elif rsi <= 55:
         signal="BUY"; txt="🟢 شراء M1 - ترند صاعد"
     else:
-        signal="WAIT"; txt="⚪ انتظار - صعود قوي M1"
+        signal="WAIT"; txt="⚪ انتظار - صعود M1 قوي"
 else:
     if rsi <= 20 and golden_zone and not sell_order:
         signal="BUY_STRONG"; txt="🟢🟢 شراء M1 قوي + 15د ذهبية 🔥"
@@ -167,7 +200,7 @@ else:
 
 state=load_state()
 fib_txt=f"0%={fibs['high']:.1f} | 25%={fibs['25']:.1f} | 50%={fibs['50']:.1f} | 100%={fibs['low']:.1f}"
-trend_txt="🔴 هبوط M1 قوي" if strong_down else "🟢 صعود M1 قوي" if strong_up else "↔️ جانبي M1"
+trend_txt="🔴 هبوط M1 قوي" if strong_down else "🟢 صعود M1 قوي" if strong_up else "↔️ جانبي"
 
 msg=f"""⏰ {w_time} - M1 دخول ✅ 15د تأكيد ✅
 🥇 لايف إكسنس: {live_price:.2f}
