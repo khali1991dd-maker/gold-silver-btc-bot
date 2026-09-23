@@ -47,8 +47,7 @@ def build_15m(data):
         if len(resampled) < 3: return None
         resampled.rename(columns={'open': 'o', 'high': 'h', 'low': 'l', 'close': 'c'}, inplace=True)
         return resampled.reset_index()
-    except Exception as e:
-        return None
+    except: return None
 
 def load_state():
     try: return json.load(open(STATE_FILE))
@@ -101,7 +100,8 @@ if df15 is not None and len(df15) >= 3:
     if not ob_txt: ob_txt = "لا يوجد"
     src15 = f"{len(df15)} شمعة ✅"
 else:
-    fibs = {"high": live + 3, "low": live - 3, "0": live + 3, "25": live + 1.5, "50": live, "100": live - 3}
+    # تعديل النطاق الافتراضي إلى 5 دولار عند بداية التجميع
+    fibs = {"high": live + 5, "low": live - 5, "0": live + 5, "25": live + 2.5, "50": live, "100": live - 5}
     bull = bear = None; fib_txt = f"يجمع {len(data)}/15"; ob_txt = "يجمع"; src15 = "يجمع"
 
 # --- الترند ---
@@ -119,8 +119,9 @@ if len(prices) >= 200:
 
 trend_txt = "🔴 ترند هابط قوي M1" if strong_down else "🟢 ترند صاعد قوي M1" if strong_up else "↔️ ترند جانبي"
 
-near_fib25 = abs(live - fibs["25"]) < 3
-near_fib50 = abs(live - fibs["50"]) < 3
+# --- التعديل الرئيسي: المسافة من الفيبو أصبحت أقل من 5 دولار بدلاً من 3 دولار ---
+near_fib25 = abs(live - fibs["25"]) < 5
+near_fib50 = abs(live - fibs["50"]) < 5
 in_bull = bull and bull[0] <= live <= bull[1]
 in_bear = bear and bear[0] <= live <= bear[1]
 golden = near_fib25 or near_fib50 or in_bull or in_bear
