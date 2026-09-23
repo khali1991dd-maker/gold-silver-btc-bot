@@ -1,29 +1,37 @@
-name: Gold Bot M1
+name: run
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - run: pip install requests pandas
-      - run: python main.py
+
+      - name: Run python main.py
+        run: python main.py
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+
       - name: Save data
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@bot.com"
-          git pull --rebase || true
-          git add exness_prices.json || echo "no file yet"
-          git commit -m "update ${{ github.run_number }}" || exit 0
-          git push || git push --force
+          git add exness_prices.json
+          git diff --staged --quiet || git commit -m "update data ${{ github.run_number }}"
+          git push
