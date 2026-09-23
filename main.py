@@ -38,30 +38,40 @@ def get_exness_price():
         except: time.sleep(1)
     return None
 
-def build_15m_candles(data):
-    # يبني 15د حقيقي مثل الميتا - كل شمعة 00-14, 15-29, 30-44, 45-59
-    if len(data)<15: return None
-    df=pd.DataFrame(data)
+def get_binance_m1():
     try:
-        df['dt']=pd.to_datetime(df['time'])
-    except:
-        # لو ملف قديم بدون وقت - نحوله للجديد
-        return None
+        url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1m&limit=250"
+        r=requests.get(url, timeout=15).json()
+        if isinstance(r, list) and len(r)>50:
+            df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
+            for k in ['h','l','o','c']: df[k]=df[k].astype(float)
+            return df
+    except: pass
+    return None
 
-    df['bucket'] = (df['dt'].dt.hour*60 + df['dt'].dt.minute)//15
-    candles=[]
-    for b, group in df.groupby('bucket'):
-        if len(group)>=2:
-            candles.append({
-                "o": float(group.iloc[0]['price']),
-                "h": float(group['price'].max()),
-                "l": float(group['price'].min()),
-                "c": float(group.iloc[-1]['price']),
-                "time": str(group.iloc[-1]['dt'])
-            })
-    # آخر 10 شموع فقط للفيبو
-    if len(candles)<5:
-        # فولباك: كل 15 نقطة = شمعة
+def get_binance_15m():
+    try:
+        url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=100"
+        r=requests.get(url, timeout=15).json()
+        if isinstance(r, list) and len(r)>10:
+            df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
+            for k in ['h','l','o','c']: df[k]=df[k].astype(float)
+            return df
+    except: pass
+    return None
+
+def build_15m_from_exness(data):
+    if len(data)<15: return None
+    try:
+        df=pd.DataFrame(data)
+        df['dt']=pd.to_datetime(df['time'])
+        df['bucket'] = (df['dt'].dt.hour*60 + df['dt'].dt.minute)//15 + df['dt'].dt.day*96
+        candles=[]
+        for b, group in df.groupby('bucket'):
+            if len(group)>=2:
+                candles.append({"o":float(group.iloc[0]['price']),"h":float(group['price'].max()),"l":float(group['price'].min()),"c":float(group.iloc[-1]['price'])})
+        return pd.DataFrame(candles[-100:]) if len(candles)>=5 else None
+    except:
         prices=[x["price"] for x in data]
         rows=[]
         for i in range(0, len(prices), 15):
@@ -69,8 +79,6 @@ def build_15m_candles(data):
             if len(chunk)>=3:
                 rows.append({"o":chunk[0],"h":max(chunk),"l":min(chunk),"c":chunk[-1]})
         return pd.DataFrame(rows) if len(rows)>=5 else None
-
-    return pd.DataFrame(candles[-100:])
 
 def calc_fib_and_ob(df15):
     if df15 is None or len(df15)<5: return None
@@ -104,28 +112,59 @@ if not is_open(now):
 live_price=get_exness_price()
 if not live_price: exit()
 
-# حفظ السعر + الوقت مثل الميتا
 try: data=json.load(open(FILE))
 except: data=[]
 data.append({"price":live_price, "time": now.isoformat()})
 data=data[-1500:]
 json.dump(data, open(FILE,"w"))
 
-if len(data)<60:
-    send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ يجمع M1 {len(data)}/60 - باقي {60-len(data)} دقيقة\n📝 يحفظ الوقت الآن"); exit()
-
+# --- تحديد المصدر ---
 ex_prices=pd.Series([x["price"] for x in data])
-ma20=ex_prices.ewm(span=20, adjust=False).mean().iloc[-1]
-ma50=ex_prices.ewm(span=50, adjust=False).mean().iloc[-1]
-ma100=ex_prices.ewm(span=100, adjust=False).mean().iloc[-1]
-ma200=ex_prices.ewm(span=200, adjust=False).mean().iloc[-1]
-ma200_14=ex_prices.ewm(span=200, adjust=False).mean().shift(14).iloc[-1] if len(ex_prices)>214 else ma200
-ma20_prev=ex_prices.ewm(span=20, adjust=False).mean().iloc[-6]
-rsi=rsi_func(ex_prices,14).iloc[-1]
+is_exness_ready = len(data) >= 60
+is_15m_exness_ready = len(data) >= 150
 
-df_15=build_15m_candles(data)
+if is_exness_ready:
+    # كله إكسنس 100% يطابق الميتا
+    closes=ex_prices
+    ma20=closes.ewm(span=20, adjust=False).mean().iloc[-1]
+    ma50=closes.ewm(span=50, adjust=False).mean().iloc[-1]
+    ma100=closes.ewm(span=100, adjust=False).mean().iloc[-1]
+    ma200=closes.ewm(span=200, adjust=False).mean().iloc[-1]
+    ma200_14=closes.ewm(span=200, adjust=False).mean().shift(14).iloc[-1] if len(closes)>214 else ma200
+    ma20_prev=closes.ewm(span=20, adjust=False).mean().iloc[-6]
+    rsi=rsi_func(closes,14).iloc[-1]
+    src="إكسنس ✅ 100% مثل الميتا"
+else:
+    df_m1=get_binance_m1()
+    if df_m1 is None:
+        send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ يجمع M1 {len(data)}/60 | شغال مؤقت باينانس لين يكمل");
+        closes=ex_prices
+        ma20=closes.ewm(span=20, adjust=False).mean().iloc[-1] if len(closes)>20 else live_price
+        ma50=ma20; ma100=ma20; ma200=ma20; ma200_14=ma20; ma20_prev=ma20
+        rsi=rsi_func(ex_prices,14).iloc[-1] if len(ex_prices)>14 else 50
+        src=f"مؤقت باينانس - باقي {60-len(data)}د ل إكسنس"
+    else:
+        closes=df_m1['c']
+        ma20=closes.ewm(span=20, adjust=False).mean().iloc[-1]
+        ma50=closes.ewm(span=50, adjust=False).mean().iloc[-1]
+        ma100=closes.ewm(span=100, adjust=False).mean().iloc[-1]
+        ma200=closes.ewm(span=200, adjust=False).mean().iloc[-1]
+        ma200_14=closes.ewm(span=200, adjust=False).mean().shift(14).iloc[-1]
+        ma20_prev=closes.ewm(span=20, adjust=False).mean().iloc[-6]
+        # RSI دائما من إكسنس حتى لو MA من باينانس
+        rsi=rsi_func(ex_prices,14).iloc[-1] if len(ex_prices)>14 else rsi_func(closes,14).iloc[-1]
+        src=f"MA مؤقت باينانس | RSI إكسنس | باقي {60-len(data)}د"
+
+# 15د
+if is_15m_exness_ready:
+    df_15=build_15m_from_exness(data)
+    src15="إكسنس ✅"
+else:
+    df_15=get_binance_15m()
+    src15=f"باينانس مؤقت - باقي {150-len(data)}د"
+
 if df_15 is None or len(df_15)<5:
-    send(f"⏰ {w_time}\n🥇 لايف: {live_price:.2f}\n📈 M1 إكسنس: 20={ma20:.1f} | 50={ma50:.1f} | RSI={rsi:.1f}\n⏳ يجمع 15د {len(data)}/150"); exit()
+    send(f"⏰ {w_time} - {src}\n🥇 لايف: {live_price:.2f}\n📈 M1: 20={ma20:.1f} | 50={ma50:.1f} | RSI={rsi:.1f}\n⏳ 15د {src15}"); exit()
 
 fibs,bull_ob,bear_ob=calc_fib_and_ob(df_15)
 
@@ -162,15 +201,15 @@ else:
 state=load_state()
 fib_txt=f"0%={fibs['high']:.1f} | 25%={fibs['25']:.1f} | 50%={fibs['50']:.1f} | 100%={fibs['low']:.1f}"
 ob_txt=""
-if bull_ob: ob_txt+=f" | شرائي {bull_ob[0]:.1f}-{bull_ob[1]:.1f}"
-if bear_ob: ob_txt+=f" | بيعي {bear_ob[0]:.1f}-{bear_ob[1]:.1f}"
+if bull_ob: ob_txt+=f" شرائي {bull_ob[0]:.1f}-{bull_ob[1]:.1f}"
+if bear_ob: ob_txt+=f" بيعي {bear_ob[0]:.1f}-{bear_ob[1]:.1f}"
 trend_txt="🔴 هبوط M1 قوي" if strong_down else "🟢 صعود M1 قوي" if strong_up else "↔️ جانبي"
 
-msg=f"""⏰ {w_time} - M1 + 15د إكسنس ✅ 100% مثل الميتا
+msg=f"""⏰ {w_time} - {src} | 15د {src15}
 🥇 لايف إكسنس: {live_price:.2f}
-📈 M1 إكسنس: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f} | 200={ma200_14:.2f}
-📊 RSI إكسنس: {rsi:.2f} | {trend_txt}
-📐 فيبو 15د إكسنس: {fib_txt}
+📈 M1: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f} | 200={ma200_14:.2f}
+📊 RSI: {rsi:.2f} | {trend_txt}
+📐 فيبو 15د: {fib_txt}
 🧱 بلوك: {ob_txt if ob_txt else 'لا يوجد'}
 🎯 {txt}
 """
@@ -179,12 +218,12 @@ send(msg)
 if signal in ["BUY_STRONG","SELL_STRONG"] and state.get("last_signal")!= signal+f"{int(live_price)}":
     if "BUY" in signal:
         entry=live_price; sl=fibs["low"]-3.0; tp1=fibs["50"]; tp2=fibs["25"]; tp3=fibs["high"]
-        send(f"🚨 1️⃣ دخول شراء إكسنس\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI: {rsi:.1f}\n📍 فيبو إكسنس: {fib_txt}\n🧱 {ob_txt}")
+        send(f"🚨 1️⃣ دخول شراء\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI: {rsi:.1f}\n📍 فيبو: {fib_txt}")
         send(f"🎯 2️⃣ أهداف\n🎯 1: {tp1:.2f} (50%)\n🎯 2: {tp2:.2f} (25%)\n🎯 3: {tp3:.2f} (0%)")
         send(f"🛑 3️⃣ ستوب\n🛑 {sl:.2f} | مخاطرة {abs(entry-sl):.2f}$")
     else:
         entry=live_price; sl=fibs["high"]+3.0; tp1=fibs["50"]; tp2=fibs["25"]; tp3=fibs["low"]
-        send(f"🚨 1️⃣ دخول بيع إكسنس\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI: {rsi:.1f}\n📍 فيبو إكسنس: {fib_txt}\n🧱 {ob_txt}")
+        send(f"🚨 1️⃣ دخول بيع\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI: {rsi:.1f}\n📍 فيبو: {fib_txt}")
         send(f"🎯 2️⃣ أهداف\n🎯 1: {tp1:.2f} (50%)\n🎯 2: {tp2:.2f} (25%)\n🎯 3: {tp3:.2f} (100%)")
         send(f"🛑 3️⃣ ستوب\n🛑 {sl:.2f} | مخاطرة {abs(sl-entry):.2f}$")
     save_state({"last_signal": signal+f"{int(live_price)}"})
