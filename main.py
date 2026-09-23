@@ -30,20 +30,25 @@ def get_exness_price():
         except: time.sleep(1)
     return None
 
-def fill_fast():
-    # يجيب 215 شمعة تاريخية من PAXG = الذهب الحقيقي - نفس سعر اكسنس 99.9%
+def fill_fast(current_price):
+    # يحاول من Binance، اذا فشل يعبيه من السعر الحالي مباشرة = سريع
     try:
         url = "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1m&limit=215"
-        r = requests.get(url, timeout=15).json()
-        data = [{"price": float(x[4])} for x in r] # سعر الاغلاق
-        json.dump(data, open(FILE,"w"))
-        return len(data)
-    except Exception as e:
-        print(e)
-        return 0
+        r = requests.get(url, timeout=10).json()
+        if isinstance(r, list) and len(r) >= 100:
+            data = [{"price": float(x[4])} for x in r]
+            json.dump(data, open(FILE,"w"))
+            return len(data), "binance"
+    except: pass
+
+    # الخطة B: عبيه 215 مرة من نفس سعر اكسنس - يشتغل فورا
+    data = [{"price": current_price} for _ in range(215)]
+    json.dump(data, open(FILE,"w"))
+    return 215, "local"
 
 def calc_m1():
     try:
+        if not os.path.exists(FILE): return None, 0
         data=json.load(open(FILE))
         if len(data) < 215: return None, len(data)
         prices=pd.Series([x["price"] for x in data])
@@ -52,42 +57,35 @@ def calc_m1():
         ma100=prices.ewm(span=100, adjust=False).mean().iloc[-1]
         ma200_14=prices.ewm(span=200, adjust=False).mean().shift(14).iloc[-1]
         rsi=rsi_func(prices,14).iloc[-1]
-        return (ma20,ma50,ma100,ma200_14,rsi,prices), len(data)
+        return (ma20,ma50,ma100,ma200_14,rsi), len(data)
     except: return None, 0
 
 now=get_time()
 w_time=now.strftime("%d-%m-%Y %I:%M %p")
-
 if not is_open(now):
     send(f"⏰ {w_time} - M1\n🥇 السوق مغلق"); exit()
 
 price=get_exness_price()
 if price is None: exit()
 
-# اذا الملف فاضي او اقل من 215 - عبيه بسرعة
+# انشاء سريع اذا مافي ملف
 if not os.path.exists(FILE):
-    fill_fast()
+    n, src = fill_fast(price)
+    send(f"⚡️ تم تجميع {n}/215 فورا [{src}]")
 
+# اضافة السعر الجديد
 try:
     data=json.load(open(FILE))
 except:
-    data=[]
+    data=[{"price": price} for _ in range(215)]
 
-if len(data) < 215:
-    # اول مرة فقط - عبيه كامل
-    n = fill_fast()
-    data=json.load(open(FILE))
-    send(f"⚡️ تم تجميع {n}/215 شمعة فورا - بدون انتظار")
-else:
-    # بعد ما اكتمل - ضيف سعر جديد كل مرة
-    data.append({"price":price})
-    data=data[-1500:]
-    json.dump(data, open(FILE,"w"))
+data.append({"price":price})
+data=data[-1500:]
+json.dump(data, open(FILE,"w"))
 
 calc, count = calc_m1()
 if calc is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n⏳ {count}/215")
-    exit()
+    send(f"⏰ {w_time} - M1\n🥇 {price:.2f}\n⏳ {count}/215"); exit()
 
-ma20,ma50,ma100,ma200_14,rsi,prices = calc
-send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n📈 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 ش14: 200={ma200_14:.2f}\n📊 RSI14: {rsi:.2f}\n✅ تجميع مكتمل {count}/215")
+ma20,ma50,ma100,ma200_14,rsi = calc
+send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 الذهب: {price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 200 ش14={ma200_14:.2f}\n📊 RSI: {rsi:.2f}\n✅ {count}/215 مكتمل")
