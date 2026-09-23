@@ -4,9 +4,12 @@ TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
 TG_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 FILE = "exness_prices.json"
+STATE_FILE = "last_signal.json"
 
 def send(text):
-    try: requests.post(TG_URL, data={"chat_id": CHAT, "text": text, "parse_mode": "Markdown"}, timeout=20)
+    try:
+        requests.post(TG_URL, data={"chat_id": CHAT, "text": text, "parse_mode": "Markdown"}, timeout=20)
+        time.sleep(1)
     except: pass
 
 def get_time():
@@ -90,6 +93,13 @@ def calc_m1():
         return (ma20,ma50,ma100,ma200_14,rsi,prices), len(data)
     except: return None,0
 
+def load_state():
+    try: return json.load(open(STATE_FILE))
+    except: return {"last_signal":""}
+
+def save_state(s):
+    json.dump(s, open(STATE_FILE,"w"))
+
 now=get_time()
 w_time=now.strftime("%d-%m-%Y %I:%M %p")
 if not is_open(now):
@@ -115,12 +125,10 @@ if calc is None:
     send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 {live_price:.2f}\n⏳ يجمع {count}/215"); exit()
 
 ma20,ma50,ma100,ma200_14,rsi,prices=calc
-
 if fib_data is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 لايف: {live_price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 200 ش14={ma200_14:.2f}\n📊 RSI: {rsi:.2f}"); exit()
+    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 لايف: {live_price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📊 RSI: {rsi:.2f}"); exit()
 
 fibs,bull_ob,bear_ob=fib_data
-
 buy_order = ma20>ma50>ma100
 sell_order = ma20<ma50<ma100
 near_fib25 = abs(live_price-fibs["25"])<4
@@ -129,57 +137,46 @@ in_bull_ob = bull_ob and bull_ob[0] <= live_price <= bull_ob[1]
 in_bear_ob = bear_ob and bear_ob[0] <= live_price <= bear_ob[1]
 golden_zone = near_fib25 or near_fib50 or in_bull_ob or in_bear_ob
 
-# منطق الإشارة الجديد والصحيح
-if rsi <= 15:
-    signal = "🟢🟢 شراء قوي جدا 🔥 ارتداد من القاع - فيبو 100%"
-elif rsi <= 25 and golden_zone:
-    signal = "🟢 شراء قوي 🔥 RSI تشبع + منطقة ذهبية"
-elif rsi <= 30:
-    signal = "🟢 تشبع بيعي - استعد للشراء"
-elif rsi >= 85:
-    signal = "🔴🔴 بيع قوي جدا 🔥 قمة - فيبو 0%"
-elif rsi >= 75 and golden_zone:
-    signal = "🔴 بيع قوي 🔥 RSI تشبع + منطقة ذهبية"
-elif rsi >= 70:
-    signal = "🔴 تشبع شرائي - استعد للبيع"
-elif buy_order and golden_zone and live_price>ma200_14:
-    signal = "🟢 شراء ذهبي 🔥"
-elif sell_order and golden_zone and live_price<ma200_14:
-    signal = "🔴 بيع ذهبي 🔥"
-elif buy_order:
-    signal = "🟢 شراء - ترتيب صاعد"
-elif sell_order:
-    signal = "🔴 بيع - ترتيب هابط"
-else:
-    signal = "⚪ انتظار"
+if rsi <= 15: signal="BUY_STRONG"; signal_txt="🟢🟢 شراء قوي جدا 🔥 ارتداد من القاع"
+elif rsi <=25 and golden_zone: signal="BUY_STRONG"; signal_txt="🟢 شراء قوي 🔥 RSI + ذهبية"
+elif rsi <=30: signal="BUY_WEAK"; signal_txt="🟢 تشبع بيعي"
+elif rsi >=85: signal="SELL_STRONG"; signal_txt="🔴🔴 بيع قوي جدا 🔥"
+elif rsi >=75 and golden_zone: signal="SELL_STRONG"; signal_txt="🔴 بيع قوي 🔥"
+elif rsi >=70: signal="SELL_WEAK"; signal_txt="🔴 تشبع شرائي"
+elif buy_order and golden_zone: signal="BUY"; signal_txt="🟢 شراء ذهبي"
+elif sell_order and golden_zone: signal="SELL"; signal_txt="🔴 بيع ذهبي"
+else: signal="WAIT"; signal_txt="⚪ انتظار"
 
+state=load_state()
 fib_txt=f"0%={fibs['high']:.1f} | 25%={fibs['25']:.1f} | 50%={fibs['50']:.1f} | 100%={fibs['low']:.1f}"
-ob_txt=""
-if bull_ob: ob_txt+=f"\n🟩 شرائي: {bull_ob[0]:.1f}-{bull_ob[1]:.1f} {'✅ داخل' if in_bull_ob else ''}"
-if bear_ob: ob_txt+=f"\n🟥 بيعي: {bear_ob[0]:.1f}-{bear_ob[1]:.1f} {'✅ داخل' if in_bear_ob else ''}"
-if not ob_txt: ob_txt="\nلا يوجد بلوك واضح"
-
-gold_txt="🔥 منطقة ذهبية" if golden_zone else "منطقة عادية"
-order_txt='20>50>100 ✅ صاعد' if buy_order else '20<50<100 ✅ هابط' if sell_order else 'غير مرتب ❌'
 
 msg=f"""⏰ {w_time} - M1 إكسنس ✅
 🥇 لايف: {live_price:.2f}
-
-📈 موفنجات:
-ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}
-ش14: 200={ma200_14:.2f}
-
-📊 RSI14: {rsi:.2f}
-
-📐 فيبو 15د:
-{fib_txt}
-
-🏦 أوردر بلوك 15د:{ob_txt}
-
-{gold_txt}
-📋 ترتيب: {order_txt}
-
-🎯 الإشارة: {signal}
+📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f} | 200={ma200_14:.2f}
+📊 RSI: {rsi:.2f}
+📐 فيبو: {fib_txt}
+🎯 {signal_txt}
 ✅ {count}
 """
 send(msg)
+
+if signal in ["BUY_STRONG","SELL_STRONG"] and state.get("last_signal")!= signal+f"{int(live_price)}":
+    if "BUY" in signal:
+        entry=live_price
+        sl=fibs["low"]-3.0
+        tp1=fibs["50"]
+        tp2=fibs["25"]
+        tp3=fibs["high"]
+        send(f"🚨 1️⃣ دخول شراء\n⏰ {w_time}\n🥇 دخول: {entry:.2f}\n📍 فيبو 100% + RSI {rsi:.1f}\n🔥 منطقة ذهبية")
+        send(f"🎯 2️⃣ الأهداف\n🥇 دخول: {entry:.2f}\n🎯 هدف 1: {tp1:.2f} (50%)\n🎯 هدف 2: {tp2:.2f} (25%)\n🎯 هدف 3: {tp3:.2f} (0% القمة)\n💰 حرك الستوب للدخول بعد هدف1")
+        send(f"🛑 3️⃣ وقف الخسارة\n🛑 ستوب: {sl:.2f}\n⚠️ المخاطرة: {abs(entry-sl):.2f}$\n❌ كسر {sl:.2f} بشمعة 15د اغلق")
+    else:
+        entry=live_price
+        sl=fibs["high"]+3.0
+        tp1=fibs["50"]
+        tp2=fibs["25"]
+        tp3=fibs["low"]
+        send(f"🚨 1️⃣ دخول بيع\n⏰ {w_time}\n🥇 دخول: {entry:.2f}\n📍 فيبو 0% + RSI {rsi:.1f}\n🔥 منطقة ذهبية")
+        send(f"🎯 2️⃣ الأهداف\n🥇 دخول: {entry:.2f}\n🎯 هدف 1: {tp1:.2f} (50%)\n🎯 هدف 2: {tp2:.2f} (25%)\n🎯 هدف 3: {tp3:.2f} (100% القاع)")
+        send(f"🛑 3️⃣ وقف الخسارة\n🛑 ستوب: {sl:.2f}\n⚠️ المخاطرة: {abs(sl-entry):.2f}$\n❌ اختراق {sl:.2f} بشمعة 15د اغلق")
+    save_state({"last_signal": signal+f"{int(live_price)}"})
