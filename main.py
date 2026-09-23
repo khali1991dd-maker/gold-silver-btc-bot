@@ -66,11 +66,7 @@ def calc_fib_and_ob(df15):
     swing_low=last10['l'].min()
     diff=swing_high-swing_low
     if diff < 0.5: diff = 5.0
-    fibs={
-        "high":swing_high, "low":swing_low,
-        "0":swing_high, "25":swing_high-diff*0.25,
-        "50":swing_high-diff*0.50, "100":swing_low
-    }
+    fibs={"high":swing_high,"low":swing_low,"0":swing_high,"25":swing_high-diff*0.25,"50":swing_high-diff*0.50,"100":swing_low}
     bullish_ob=None; bearish_ob=None
     for i in range(len(df15)-2, 2, -1):
         if df15.iloc[i]['c'] < df15.iloc[i]['o'] and df15.iloc[i+1]['c'] > df15.iloc[i+1]['o']:
@@ -121,28 +117,41 @@ if calc is None:
 ma20,ma50,ma100,ma200_14,rsi,prices=calc
 
 if fib_data is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 لايف: {live_price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 200 ش14={ma200_14:.2f}\n📊 RSI: {rsi:.2f}\n⏳ فيبو قيد التجميع {count}"); exit()
+    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 لايف: {live_price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📈 200 ش14={ma200_14:.2f}\n📊 RSI: {rsi:.2f}"); exit()
 
 fibs,bull_ob,bear_ob=fib_data
-buy_order = ma20>ma50>ma100 and live_price>ma200_14
-sell_order = ma20<ma50<ma100 and live_price<ma200_14
+
+buy_order = ma20>ma50>ma100
+sell_order = ma20<ma50<ma100
 near_fib25 = abs(live_price-fibs["25"])<4
 near_fib50 = abs(live_price-fibs["50"])<4
 in_bull_ob = bull_ob and bull_ob[0] <= live_price <= bull_ob[1]
 in_bear_ob = bear_ob and bear_ob[0] <= live_price <= bear_ob[1]
 golden_zone = near_fib25 or near_fib50 or in_bull_ob or in_bear_ob
-rsi_buy = rsi<=30
-rsi_sell = rsi>=70
 
-signal="⚪ انتظار"
-if buy_order and (rsi_buy or golden_zone):
-    signal="🟢 شراء قوي 🔥" if golden_zone and rsi_buy else "🟢 شراء"
-elif sell_order and (rsi_sell or golden_zone):
-    signal="🔴 بيع قوي 🔥" if golden_zone and rsi_sell else "🔴 بيع"
-elif rsi_buy:
-    signal="🟢 تشبع بيعي - قرب شراء"
-elif rsi_sell:
-    signal="🔴 تشبع شرائي - قرب بيع"
+# منطق الإشارة الجديد والصحيح
+if rsi <= 15:
+    signal = "🟢🟢 شراء قوي جدا 🔥 ارتداد من القاع - فيبو 100%"
+elif rsi <= 25 and golden_zone:
+    signal = "🟢 شراء قوي 🔥 RSI تشبع + منطقة ذهبية"
+elif rsi <= 30:
+    signal = "🟢 تشبع بيعي - استعد للشراء"
+elif rsi >= 85:
+    signal = "🔴🔴 بيع قوي جدا 🔥 قمة - فيبو 0%"
+elif rsi >= 75 and golden_zone:
+    signal = "🔴 بيع قوي 🔥 RSI تشبع + منطقة ذهبية"
+elif rsi >= 70:
+    signal = "🔴 تشبع شرائي - استعد للبيع"
+elif buy_order and golden_zone and live_price>ma200_14:
+    signal = "🟢 شراء ذهبي 🔥"
+elif sell_order and golden_zone and live_price<ma200_14:
+    signal = "🔴 بيع ذهبي 🔥"
+elif buy_order:
+    signal = "🟢 شراء - ترتيب صاعد"
+elif sell_order:
+    signal = "🔴 بيع - ترتيب هابط"
+else:
+    signal = "⚪ انتظار"
 
 fib_txt=f"0%={fibs['high']:.1f} | 25%={fibs['25']:.1f} | 50%={fibs['50']:.1f} | 100%={fibs['low']:.1f}"
 ob_txt=""
@@ -150,8 +159,8 @@ if bull_ob: ob_txt+=f"\n🟩 شرائي: {bull_ob[0]:.1f}-{bull_ob[1]:.1f} {'✅
 if bear_ob: ob_txt+=f"\n🟥 بيعي: {bear_ob[0]:.1f}-{bear_ob[1]:.1f} {'✅ داخل' if in_bear_ob else ''}"
 if not ob_txt: ob_txt="\nلا يوجد بلوك واضح"
 
-gold_txt="🔥 منطقة ذهبية - السعر عند فيبو/بلوك" if golden_zone else "منطقة عادية"
-order_txt='20>50>100 ✅ شرائي' if ma20>ma50>ma100 else '20<50<100 ✅ بيعي' if ma20<ma50<ma100 else 'غير مرتب ❌'
+gold_txt="🔥 منطقة ذهبية" if golden_zone else "منطقة عادية"
+order_txt='20>50>100 ✅ صاعد' if buy_order else '20<50<100 ✅ هابط' if sell_order else 'غير مرتب ❌'
 
 msg=f"""⏰ {w_time} - M1 إكسنس ✅
 🥇 لايف: {live_price:.2f}
@@ -160,7 +169,7 @@ msg=f"""⏰ {w_time} - M1 إكسنس ✅
 ش0: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}
 ش14: 200={ma200_14:.2f}
 
-📊 RSI14: {rsi:.2f} {'🟢 تشبع بيعي' if rsi_buy else '🔴 تشبع شرائي' if rsi_sell else ''}
+📊 RSI14: {rsi:.2f}
 
 📐 فيبو 15د:
 {fib_txt}
@@ -171,6 +180,6 @@ msg=f"""⏰ {w_time} - M1 إكسنس ✅
 📋 ترتيب: {order_txt}
 
 🎯 الإشارة: {signal}
-✅ {count}/215
+✅ {count}
 """
 send(msg)
