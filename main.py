@@ -100,7 +100,6 @@ if df15 is not None and len(df15) >= 3:
     if not ob_txt: ob_txt = "لا يوجد"
     src15 = f"{len(df15)} شمعة ✅"
 else:
-    # تعديل النطاق الافتراضي إلى 5 دولار عند بداية التجميع
     fibs = {"high": live + 5, "low": live - 5, "0": live + 5, "25": live + 2.5, "50": live, "100": live - 5}
     bull = bear = None; fib_txt = f"يجمع {len(data)}/15"; ob_txt = "يجمع"; src15 = "يجمع"
 
@@ -119,20 +118,19 @@ if len(prices) >= 200:
 
 trend_txt = "🔴 ترند هابط قوي M1" if strong_down else "🟢 ترند صاعد قوي M1" if strong_up else "↔️ ترند جانبي"
 
-# --- التعديل الرئيسي: المسافة من الفيبو أصبحت أقل من 5 دولار بدلاً من 3 دولار ---
 near_fib25 = abs(live - fibs["25"]) < 5
 near_fib50 = abs(live - fibs["50"]) < 5
 in_bull = bull and bull[0] <= live <= bull[1]
 in_bear = bear and bear[0] <= live <= bear[1]
 golden = near_fib25 or near_fib50 or in_bull or in_bear
 
-# --- إشارات ---
+# --- إشارات (تعديل الـ RSI إلى 50 المتوازن) ---
 if strong_down:
-    if rsi >= 55 and golden: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع قوي M1 + 15د 🔥"
+    if rsi >= 50 and golden: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع قوي M1 + 15د 🔥"
     elif rsi >= 48: signal = "SELL"; sig_txt = "🔴 بيع M1"
     else: signal = "WAIT"; sig_txt = "⚪ هبوط قوي - انتظار"
 elif strong_up:
-    if rsi <= 45 and golden: signal = "BUY_STRONG"; sig_txt = "🟢🟢 شراء قوي M1 + 15د 🔥"
+    if rsi <= 50 and golden: signal = "BUY_STRONG"; sig_txt = "🟢🟢 شراء قوي M1 + 15د 🔥"
     elif rsi <= 52: signal = "BUY"; sig_txt = "🟢 شراء M1"
     else: signal = "WAIT"; sig_txt = "⚪ صعود قوي - انتظار"
 else:
