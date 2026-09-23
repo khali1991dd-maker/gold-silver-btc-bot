@@ -38,6 +38,17 @@ def get_exness_price():
         except: time.sleep(1)
     return None
 
+def get_m1_data():
+    try:
+        url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=1m&limit=250"
+        r=requests.get(url, timeout=12).json()
+        if isinstance(r, list) and len(r)>50:
+            df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
+            for k in ['h','l','o','c']: df[k]=df[k].astype(float)
+            return df
+    except: pass
+    return None
+
 def get_15m_data():
     try:
         url="https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=15m&limit=100"
@@ -46,19 +57,6 @@ def get_15m_data():
             df=pd.DataFrame(r, columns=['o_t','o','h','l','c','v','c_t','q','n','tb','tq','i'])
             for k in ['h','l','o','c']: df[k]=df[k].astype(float)
             return df
-    except: pass
-    try:
-        if os.path.exists(FILE):
-            data=json.load(open(FILE))
-            prices=[x["price"] for x in data]
-            if len(prices)>=30:
-                rows=[]
-                for i in range(0, len(prices), 15):
-                    chunk=prices[i:i+15]
-                    if len(chunk)>=3:
-                        rows.append({"o":chunk[0],"h":max(chunk),"l":min(chunk),"c":chunk[-1]})
-                df=pd.DataFrame(rows)
-                if len(df)>=5: return df
     except: pass
     return None
 
@@ -79,19 +77,6 @@ def calc_fib_and_ob(df15):
             bearish_ob=(df15.iloc[i]['l'], df15.iloc[i]['h']); break
     return fibs, bullish_ob, bearish_ob
 
-def calc_m1():
-    try:
-        if not os.path.exists(FILE): return None,0
-        data=json.load(open(FILE))
-        if len(data)<30: return None,len(data)
-        prices=pd.Series([x["price"] for x in data])
-        ma20=prices.ewm(span=20, adjust=False).mean()
-        ma50=prices.ewm(span=50, adjust=False).mean()
-        ma100=prices.ewm(span=100, adjust=False).mean()
-        ma200=prices.ewm(span=200, adjust=False).mean()
-        return (ma20.iloc[-1], ma50.iloc[-1], ma100.iloc[-1], ma200.shift(14).iloc[-1], rsi_func(prices,14).iloc[-1], prices, ma20.iloc[-5], ma50.iloc[-5]), len(data)
-    except: return None,0
-
 def load_state():
     try: return json.load(open(STATE_FILE))
     except: return {"last_signal":""}
@@ -107,103 +92,101 @@ if not is_open(now):
 live_price=get_exness_price()
 if not live_price: exit()
 
-if not os.path.exists(FILE):
-    json.dump([{"price":live_price} for _ in range(215)], open(FILE,"w"))
-
+# حفظ لايف للمتابعة فقط
 try: data=json.load(open(FILE))
 except: data=[]
 data.append({"price":live_price})
 data=data[-1500:]
 json.dump(data, open(FILE,"w"))
 
-calc,count=calc_m1()
-df15=get_15m_data()
-fib_data=calc_fib_and_ob(df15)
+df_m1=get_m1_data()
+df_15=get_15m_data()
 
-if calc is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 {live_price:.2f}\n⏳ يجمع {count}/215"); exit()
+if df_m1 is None or len(df_m1)<60:
+    send(f"⏰ {w_time}\n🥇 لايف إكسنس: {live_price:.2f}\n⏳ M1 غير جاهز"); exit()
 
-ma20,ma50,ma100,ma200_14,rsi,prices,ma20_5,ma50_5=calc
-if fib_data is None:
-    send(f"⏰ {w_time} - M1 إكسنس ✅\n🥇 لايف: {live_price:.2f}\n📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f}\n📊 RSI: {rsi:.2f}"); exit()
+if df_15 is None:
+    send(f"⏰ {w_time}\n🥇 لايف: {live_price:.2f}\n⏳ 15د غير جاهز"); exit()
 
-fibs,bull_ob,bear_ob=fib_data
+# حسابات فريم الدقيقة فقط
+closes=df_m1['c']
+ma20=closes.ewm(span=20, adjust=False).mean().iloc[-1]
+ma50=closes.ewm(span=50, adjust=False).mean().iloc[-1]
+ma100=closes.ewm(span=100, adjust=False).mean().iloc[-1]
+ma200=closes.ewm(span=200, adjust=False).mean().iloc[-1]
+ma200_14=closes.ewm(span=200, adjust=False).mean().shift(14).iloc[-1]
+rsi=rsi_func(closes,14).iloc[-1]
+ma20_prev=closes.ewm(span=20, adjust=False).mean().iloc[-6]
 
-# فلاتر الترند الجديدة
+# حسابات 15د للفيبو والبلوك فقط
+fibs,bull_ob,bear_ob=calc_fib_and_ob(df_15)
+
+# فلتر ترند M1
 buy_order = ma20>ma50>ma100
 sell_order = ma20<ma50<ma100
-ma20_down = ma20 < ma20_5
-ma20_up = ma20 > ma20_5
-below_all = live_price < ma20 and live_price < ma50 and live_price < ma100
-above_all = live_price > ma20 and live_price > ma50 and live_price > ma100
+ma20_down = ma20 < ma20_prev
+ma20_up = ma20 > ma20_prev
+below_all = live_price < ma20 and live_price < ma50
+above_all = live_price > ma20 and live_price > ma50
 strong_down = sell_order and ma20_down and below_all and live_price < ma200_14
 strong_up = buy_order and ma20_up and above_all and live_price > ma200_14
 
+# ذهبية من 15د فقط
 near_fib25 = abs(live_price-fibs["25"])<4
 near_fib50 = abs(live_price-fibs["50"])<4
 in_bull_ob = bull_ob and bull_ob[0] <= live_price <= bull_ob[1]
 in_bear_ob = bear_ob and bear_ob[0] <= live_price <= bear_ob[1]
 golden_zone = near_fib25 or near_fib50 or in_bull_ob or in_bear_ob
 
-# منطق الإشارة مع احترام الترند
+# إشارة دقيقة + تأكيد 15د
 if strong_down:
-    if rsi >= 60 and golden_zone:
-        signal="SELL_STRONG"; signal_txt="🔴🔴 بيع مع الترند الهابط 🔥 ارتداد للموفنج"
-    elif rsi >= 50:
-        signal="SELL"; signal_txt="🔴 بيع - ترند هابط قوي"
-    elif rsi <= 20:
-        signal="WAIT"; signal_txt="⚠️ هبوط قوي - لا تشتري رغم تشبع RSI - انتظر"
+    if rsi >= 55 and golden_zone:
+        signal="SELL_STRONG"; txt="🔴🔴 بيع M1 مع ترند هابط + تأكيد 15د 🔥"
+    elif rsi >= 45:
+        signal="SELL"; txt="🔴 بيع M1 - ترند هابط"
     else:
-        signal="WAIT"; signal_txt="⚪ انتظار - هبوط قوي"
+        signal="WAIT"; txt="⚪ انتظار - هبوط قوي M1"
 elif strong_up:
-    if rsi <= 40 and golden_zone:
-        signal="BUY_STRONG"; signal_txt="🟢🟢 شراء مع الترند الصاعد 🔥"
-    elif rsi <= 50:
-        signal="BUY"; signal_txt="🟢 شراء - ترند صاعد قوي"
-    elif rsi >= 80:
-        signal="WAIT"; signal_txt="⚠️ صعود قوي - لا تبيع رغم التشبع"
+    if rsi <= 45 and golden_zone:
+        signal="BUY_STRONG"; txt="🟢🟢 شراء M1 مع ترند صاعد + تأكيد 15د 🔥"
+    elif rsi <= 55:
+        signal="BUY"; txt="🟢 شراء M1 - ترند صاعد"
     else:
-        signal="WAIT"; signal_txt="⚪ انتظار - صعود قوي"
+        signal="WAIT"; txt="⚪ انتظار - صعود قوي M1"
 else:
-    # سوق جانبي - نستخدم RSI والذهبية
-    if rsi <= 15 and golden_zone and not sell_order:
-        signal="BUY_STRONG"; signal_txt="🟢🟢 شراء قوي جدا 🔥 قاع"
-    elif rsi <= 25 and golden_zone and not sell_order:
-        signal="BUY_STRONG"; signal_txt="🟢 شراء قوي 🔥 RSI + ذهبية"
-    elif rsi >= 85 and golden_zone and not buy_order:
-        signal="SELL_STRONG"; signal_txt="🔴🔴 بيع قوي جدا 🔥 قمة"
-    elif rsi >= 75 and golden_zone and not buy_order:
-        signal="SELL_STRONG"; signal_txt="🔴 بيع قوي 🔥"
+    if rsi <= 20 and golden_zone and not sell_order:
+        signal="BUY_STRONG"; txt="🟢🟢 شراء M1 قوي + 15د ذهبية 🔥"
+    elif rsi >= 80 and golden_zone and not buy_order:
+        signal="SELL_STRONG"; txt="🔴🔴 بيع M1 قوي + 15د ذهبية 🔥"
     elif rsi <= 30 and buy_order:
-        signal="BUY"; signal_txt="🟢 شراء"
+        signal="BUY"; txt="🟢 شراء M1"
     elif rsi >= 70 and sell_order:
-        signal="SELL"; signal_txt="🔴 بيع"
+        signal="SELL"; txt="🔴 بيع M1"
     else:
-        signal="WAIT"; signal_txt="⚪ انتظار - سوق جانبي"
+        signal="WAIT"; txt="⚪ انتظار M1"
 
 state=load_state()
 fib_txt=f"0%={fibs['high']:.1f} | 25%={fibs['25']:.1f} | 50%={fibs['50']:.1f} | 100%={fibs['low']:.1f}"
-trend_txt="🔴 هبوط قوي" if strong_down else "🟢 صعود قوي" if strong_up else "↔️ جانبي"
+trend_txt="🔴 هبوط M1 قوي" if strong_down else "🟢 صعود M1 قوي" if strong_up else "↔️ جانبي M1"
 
-msg=f"""⏰ {w_time} - M1 إكسنس ✅
-🥇 لايف: {live_price:.2f}
-📈 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f} | 200={ma200_14:.2f}
-📊 RSI: {rsi:.2f} | ترند: {trend_txt}
-📐 فيبو: {fib_txt}
-🎯 {signal_txt}
-✅ {count}
+msg=f"""⏰ {w_time} - M1 دخول ✅ 15د تأكيد ✅
+🥇 لايف إكسنس: {live_price:.2f}
+📈 M1: 20={ma20:.2f} | 50={ma50:.2f} | 100={ma100:.2f} | 200={ma200_14:.2f}
+📊 RSI M1: {rsi:.2f} | {trend_txt}
+📐 فيبو 15د: {fib_txt}
+🎯 {txt}
 """
 send(msg)
 
 if signal in ["BUY_STRONG","SELL_STRONG"] and state.get("last_signal")!= signal+f"{int(live_price)}":
     if "BUY" in signal:
         entry=live_price; sl=fibs["low"]-3.0; tp1=fibs["50"]; tp2=fibs["25"]; tp3=fibs["high"]
-        send(f"🚨 1️⃣ دخول شراء\n⏰ {w_time}\n🥇 دخول: {entry:.2f}\n📍 {trend_txt} + RSI {rsi:.1f}\n🔥 منطقة ذهبية")
-        send(f"🎯 2️⃣ الأهداف\n🥇 دخول: {entry:.2f}\n🎯 هدف 1: {tp1:.2f} (50%)\n🎯 هدف 2: {tp2:.2f} (25%)\n🎯 هدف 3: {tp3:.2f} (0% القمة)\n💰 حرك الستوب للدخول بعد هدف1")
-        send(f"🛑 3️⃣ وقف الخسارة\n🛑 ستوب: {sl:.2f}\n⚠️ المخاطرة: {abs(entry-sl):.2f}$")
+        send(f"🚨 1️⃣ دخول شراء M1\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI M1: {rsi:.1f}\n📍 تأكيد 15د: {fib_txt}\n🔥 {trend_txt}")
+        send(f"🎯 2️⃣ أهداف 15د\n🎯 1: {tp1:.2f} (50%)\n🎯 2: {tp2:.2f} (25%)\n🎯 3: {tp3:.2f} (0%)")
+        send(f"🛑 3️⃣ ستوب 15د\n🛑 {sl:.2f} | مخاطرة {abs(entry-sl):.2f}$")
     else:
         entry=live_price; sl=fibs["high"]+3.0; tp1=fibs["50"]; tp2=fibs["25"]; tp3=fibs["low"]
-        send(f"🚨 1️⃣ دخول بيع\n⏰ {w_time}\n🥇 دخول: {entry:.2f}\n📍 {trend_txt} + RSI {rsi:.1f}\n🔥 منطقة ذهبية")
-        send(f"🎯 2️⃣ الأهداف\n🥇 دخول: {entry:.2f}\n🎯 هدف 1: {tp1:.2f} (50%)\n🎯 هدف 2: {tp2:.2f} (25%)\n🎯 هدف 3: {tp3:.2f} (100% القاع)")
-        send(f"🛑 3️⃣ وقف الخسارة\n🛑 ستوب: {sl:.2f}\n⚠️ المخاطرة: {abs(sl-entry):.2f}$")
+        send(f"🚨 1️⃣ دخول بيع M1\n⏰ {w_time}\n🥇 دخول: {entry:.2f} | RSI M1: {rsi:.1f}\n📍 تأكيد 15د: {fib_txt}\n🔥 {trend_txt}")
+        send(f"🎯 2️⃣ أهداف 15د\n🎯 1: {tp1:.2f} (50%)\n🎯 2: {tp2:.2f} (25%)\n🎯 3: {tp3:.2f} (100%)")
+        send(f"🛑 3️⃣ ستوب 15د\n🛑 {sl:.2f} | مخاطرة {abs(sl-entry):.2f}$")
     save_state({"last_signal": signal+f"{int(live_price)}"})
