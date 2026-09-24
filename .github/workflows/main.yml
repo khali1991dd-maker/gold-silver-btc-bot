@@ -1,7 +1,7 @@
 name: run
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '* * * * *'  # يعمل كل دقيقة لزيادة دقة تجميع الشموع وRSI
   workflow_dispatch:
 
 permissions:
