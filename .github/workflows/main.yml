@@ -34,4 +34,5 @@ jobs:
           git config --global user.email "bot@bot.com"
           git add exness_prices.json
           git diff --staged --quiet || git commit -m "update data ${{ github.run_number }}"
+          git pull --rebase origin main
           git push
