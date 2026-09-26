@@ -1,4 +1,9 @@
-import os, requests, datetime, time, json, pandas as pd
+import os
+import requests
+import datetime
+import time
+import json
+import pandas as pd
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHAT = os.getenv("CHAT_ID")
@@ -7,11 +12,14 @@ FILE = "exness_prices.json"
 STATE_FILE = "last_signal.json"
 
 def send(text):
+    if not TOKEN or not CHAT:
+        print("BOT_TOKEN or CHAT_ID environment variables are missing.")
+        return
     try:
         requests.post(TG_URL, data={"chat_id": CHAT, "text": text, "parse_mode": "Markdown"}, timeout=10)
         time.sleep(1)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Telegram send error: {e}")
 
 def get_time():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=4)
@@ -69,14 +77,14 @@ def save_state(s):
 now = get_time()
 w = now.strftime("%d-%m-%Y %I:%M %p")
 
+# إذا كان السوق مغلقاً لا يتم إرسال شيء
 if not is_open(now):
-    send(f"⏰ {w} - السوق مغلق")
     exit()
 
 live = get_exness()
 if not live: exit()
 
-# إدارة قراءة وحفظ بيانات الأسعار بأمان
+# إدارة قراءة وحفظ بيانات الأسعار
 data = []
 if os.path.exists(FILE):
     try:
@@ -117,18 +125,18 @@ if df15 is not None and len(df15) >= 3:
     if bull: ob_txt += f"🟩 شرائي {bull[0]:.2f}-{bull[1]:.2f} "
     if bear: ob_txt += f"🟥 بيعي {bear[0]:.2f}-{bear[1]:.2f}"
     if not ob_txt: ob_txt = "لا يوجد"
-    src15 = f"{len(df15)} شمعة ✅"
 else:
     fibs = {"high": live + 5, "low": live - 5, "0": live + 5, "25": live + 2.5, "50": live, "75": live - 2.5, "100": live - 5}
-    bull = bear = None; fib_txt = f"يجمع {len(data)}/15"; ob_txt = "يجمع"; src15 = "يجمع"
+    bull = bear = None; fib_txt = f"يجمع {len(data)}/15"; ob_txt = "يجمع"
 
-# --- الترند ---
+# --- تحديد الترند ---
 buy_order = ma20 > ma50 > ma100 if len(prices) >= 100 else ma20 > ma50
 sell_order = ma20 < ma50 < ma100 if len(prices) >= 100 else ma20 < ma50
 ma20_down = ma20 < ma20_prev
 ma20_up = ma20 > ma20_prev
 below_all = live < ma20 and live < ma50
 above_all = live > ma20 and live > ma50
+
 strong_down = sell_order and ma20_down and below_all
 strong_up = buy_order and ma20_up and above_all
 
@@ -138,82 +146,48 @@ if len(prices) >= 200:
 
 trend_txt = "🔴 ترند هابط قوي M1" if strong_down else "🟢 ترند صاعد قوي M1" if strong_up else "↔️ ترند جانبي"
 
-near_fib25 = abs(live - fibs["25"]) < 5
-near_fib50 = abs(live - fibs["50"]) < 5
-in_bull = bull and bull[0] <= live <= bull[1]
-in_bear = bear and bear[0] <= live <= bear[1]
-golden = near_fib25 or near_fib50 or in_bull or in_bear
+# استبعاد التداول عند القمم والقيعان
+not_at_peaks = (live > fibs["low"] + 1.5) and (live < fibs["high"] - 1.5)
 
-# --- الإشارات ---
-if strong_down:
-    if rsi >= 45 and golden: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع قوي M1 + 15د 🔥"
-    elif rsi >= 48: signal = "SELL"; sig_txt = "🔴 بيع M1"
-    else: signal = "WAIT"; sig_txt = "⚪ هبوط قوي - انتظار"
-elif strong_up:
-    if rsi <= 50 and golden: signal = "BUY_STRONG"; sig_txt = "🟢🟢 شراء قوي M1 + 15د 🔥"
-    elif rsi <= 52: signal = "BUY"; sig_txt = "🟢 شراء M1"
-    else: signal = "WAIT"; sig_txt = "⚪ صعود قوي - انتظار"
-else:
-    if rsi <= 30 and golden and not sell_order: signal = "BUY_STRONG"; sig_txt = "🟢🟢 شراء M1 ذهبي + 15د 🔥"
-    elif rsi >= 70 and golden and not buy_order: signal = "SELL_STRONG"; sig_txt = "🔴🔴 بيع M1 ذهبي + 15د 🔥"
-    elif rsi <= 35: signal = "BUY"; sig_txt = "🟢 شراء M1"
-    elif rsi >= 65: signal = "SELL"; sig_txt = "🔴 بيع M1"
-    else: signal = "WAIT"; sig_txt = "⚪ انتظار"
+# --- شروط الإشارات ---
+signal = "WAIT"
 
-status = "إكسنس ✅ 100%" if len(data) >= 60 else f"يجمع M1 {len(data)}/60"
+if strong_up and rsi <= 30 and not_at_peaks:
+    signal = "BUY_STRONG"
+elif strong_down and rsi >= 70 and not_at_peaks:
+    signal = "SELL_STRONG"
 
-# --- رسالة اللايف ---
-msg = f"""⏰ {w} - {status}
-━━━━━━━━━━━━━━━
-🥇 لايف M1: {live:.2f}
-
-📈 موفنجات M1 إكسنس:
-20 = {ma20:.2f}
-50 = {ma50:.2f}
-100 = {ma100:.2f}
-200 = {ma200:.2f}
-
-📊 RSI M1: {rsi:.2f}
-
-📈 الترند M1: {trend_txt}
-━━━━━━━━━━━━━━━
-⏰ 15د إكسنس {src15}:
-
-📐 فيبو 15د:
-{fib_txt}
-
-🧱 بلوك أوردر:
-{ob_txt}
-━━━━━━━━━━━━━━━
-🎯 إشارة: {sig_txt}
-"""
-send(msg)
-
-# --- إرسال الإشارات وتفاصيل الصفقة ---
+# --- إرسال الرسائل الثلاث فقط عند وجود صفقة حقيقية ---
 state = load_state()
-last_sig_key = f"{signal}_{int(live)}"
+last_sig_key = f"{signal}_{int(live/2)}"
 
 if signal in ["BUY_STRONG", "SELL_STRONG"] and state.get("last_signal") != last_sig_key:
-    if "BUY" in signal:
+    if signal == "BUY_STRONG":
         entry = live
-        sl = fibs["low"] - 3
+        sl = fibs["low"] - 2
         tp1 = fibs["50"]
         tp2 = fibs["25"]
         tp3 = fibs["high"]
         
-        send(f"🚨 1️⃣ دخول شراء إكسنس\n⏰ {w}\n🥇 دخول: {entry:.2f}\n📊 RSI: {rsi:.1f}\n📈 {trend_txt}\n📐 فيبو: {fib_txt}\n🧱 {ob_txt}\n💰 مخاطرة: {abs(entry-sl):.2f}$")
+        # الرسالة 1: تفاصيل الدخول
+        send(f"🚨 1️⃣ دخول شراء إكسنس\n⏰ {w}\n🥇 دخول: {entry:.2f}\n📊 RSI: {rsi:.1f}\n📈 الترند: {trend_txt}\n📐 فيبو: {fib_txt}\n🧱 {ob_txt}\n💰 مخاطرة: {abs(entry-sl):.2f}$")
+        # الرسالة 2: الأهداف
         send(f"🎯 2️⃣ أهداف الشراء\n🎯 1: {tp1:.2f} (50% فيبو)\n🎯 2: {tp2:.2f} (25% فيبو)\n🎯 3: {tp3:.2f} (0% قمة)")
-        send(f"🛑 3️⃣ ستوب الشراء\n🛑 {sl:.2f}\n📍 تحت 100% فيبو ب 3$")
+        # الرسالة 3: الستوب
+        send(f"🛑 3️⃣ ستوب الشراء\n🛑 {sl:.2f}\n📍 تحت القاع ب 2$")
+        
     else:
         entry = live
-        sl = fibs["high"] + 3
-        # تصحيح أهداف البيع لتكون تنازلية بالأسعار (أعلى ربح عند القاع)
+        sl = fibs["high"] + 2
         tp1 = fibs["50"]
         tp2 = fibs["75"]
         tp3 = fibs["low"]
         
-        send(f"🚨 1️⃣ دخول بيع إكسنس\n⏰ {w}\n🥇 دخول: {entry:.2f}\n📊 RSI: {rsi:.1f}\n📈 {trend_txt}\n📐 فيبو: {fib_txt}\n🧱 {ob_txt}\n💰 مخاطرة: {abs(sl-entry):.2f}$")
+        # الرسالة 1: تفاصيل الدخول
+        send(f"🚨 1️⃣ دخول بيع إكسنس\n⏰ {w}\n🥇 دخول: {entry:.2f}\n📊 RSI: {rsi:.1f}\n📈 الترند: {trend_txt}\n📐 فيبو: {fib_txt}\n🧱 {ob_txt}\n💰 مخاطرة: {abs(sl-entry):.2f}$")
+        # الرسالة 2: الأهداف
         send(f"🎯 2️⃣ أهداف البيع\n🎯 1: {tp1:.2f} (50% فيبو)\n🎯 2: {tp2:.2f} (75% فيبو)\n🎯 3: {tp3:.2f} (100% قاع)")
-        send(f"🛑 3️⃣ ستوب البيع\n🛑 {sl:.2f}\n📍 فوق 0% فيبو ب 3$")
+        # الرسالة 3: الستوب
+        send(f"🛑 3️⃣ ستوب البيع\n🛑 {sl:.2f}\n📍 فوق القمة ب 2$")
         
     save_state({"last_signal": last_sig_key, "time": now.isoformat()})
