@@ -13,13 +13,13 @@ STATE_FILE = "last_signal.json"
 
 def send(text):
     if not TOKEN or not CHAT:
-        print("BOT_TOKEN or CHAT_ID environment variables are missing.")
+        print("BOT_TOKEN or CHAT_ID missing")
         return
     try:
         requests.post(TG_URL, data={"chat_id": CHAT, "text": text, "parse_mode": "Markdown"}, timeout=10)
         time.sleep(1)
     except Exception as e:
-        print(f"Telegram send error: {e}")
+        print(f"Telegram error: {e}")
 
 def get_time():
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=4)
@@ -77,7 +77,7 @@ def save_state(s):
 now = get_time()
 w = now.strftime("%d-%m-%Y %I:%M %p")
 
-# إذا كان السوق مغلقاً لا يتم إرسال شيء
+# إن كان السوق مغلقاً لا يتم الإرسال
 if not is_open(now):
     exit()
 
@@ -146,10 +146,10 @@ if len(prices) >= 200:
 
 trend_txt = "🔴 ترند هابط قوي M1" if strong_down else "🟢 ترند صاعد قوي M1" if strong_up else "↔️ ترند جانبي"
 
-# استبعاد التداول عند القمم والقيعان
+# استبعاد التداول قرب القمم والقيعان (هامش 1.5 دولار)
 not_at_peaks = (live > fibs["low"] + 1.5) and (live < fibs["high"] - 1.5)
 
-# --- شروط الإشارات ---
+# --- شروط الإشارة الحصرية ---
 signal = "WAIT"
 
 if strong_up and rsi <= 30 and not_at_peaks:
@@ -157,7 +157,7 @@ if strong_up and rsi <= 30 and not_at_peaks:
 elif strong_down and rsi >= 70 and not_at_peaks:
     signal = "SELL_STRONG"
 
-# --- إرسال الرسائل الثلاث فقط عند وجود صفقة حقيقية ---
+# --- إرسال الرسائل الثلاث فقط عند وجود صفقة مؤكدة ---
 state = load_state()
 last_sig_key = f"{signal}_{int(live/2)}"
 
